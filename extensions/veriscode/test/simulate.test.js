@@ -31,6 +31,13 @@ run(async () => {
   const bits = ["0", "1"];
   const truthTable = bits.flatMap((a) => bits.flatMap((b) => bits.map((cin) => ({ a, b, cin }))));
   const fullAdder = await simulateFile(path.join(FIXTURES, "multimodule", "full_adder.sv"), truthTable);
+  // The submodules have signals named a, b and sum too; each row of the
+  // diagram must still be the top-level port, not a same-named inner signal.
+  check("full_adder: input rows read back exactly what was driven", [fullAdder.a, fullAdder.b, fullAdder.cin], [
+    truthTable.map((step) => step.a),
+    truthTable.map((step) => step.b),
+    truthTable.map((step) => step.cin),
+  ]);
   check("full_adder (sibling file): sum", fullAdder.sum, ["0", "1", "1", "0", "1", "0", "0", "1"]);
   check("full_adder (sibling file): cout", fullAdder.cout, ["0", "0", "0", "1", "0", "1", "1", "1"]);
 

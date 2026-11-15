@@ -58,7 +58,11 @@ export function generateTestbench(module: ParsedModule, steps: SimStep[], opts: 
 
   lines.push(`  initial begin`);
   lines.push(`    $dumpfile("${opts.vcdPath.replace(/\\/g, "\\\\")}");`);
-  lines.push(`    $dumpvars(0, ${TB_MODULE_NAME});`);
+  // Depth 1: only the testbench's own signals, i.e. the DUT's ports. Dumping
+  // the whole hierarchy would be wasted work, and wrong: a submodule signal
+  // that shares a port's name (`a` inside a half_adder) would be mistaken
+  // for the port.
+  lines.push(`    $dumpvars(1, ${TB_MODULE_NAME});`);
 
   if (steps.length === 0) {
     // Nothing to drive: fall through to $finish.
