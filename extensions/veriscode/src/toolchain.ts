@@ -35,17 +35,19 @@ export function resolveBundledPlatformDir(extensionPath: string): string | undef
 }
 
 /**
- * Locates a bundled or on-PATH toolchain binary. Bundled binaries live at
- * extension/bin/<platform>-<arch>/<name>[.exe] so packaged installers can
- * ship Icarus Verilog without the user ever installing anything themselves.
+ * Locates a toolchain binary: an explicit override (a user setting) wins,
+ * then the copy bundled at extension/bin/<platform>-<arch>/<name>[.exe] -
+ * which is what lets a packaged install work without the user installing
+ * anything - then whatever is on PATH.
  */
 export function resolveBinary(
   extensionPath: string,
   name: string,
   overrideSetting: string | undefined
 ): string | undefined {
-  if (overrideSetting && overrideSetting.trim().length > 0) {
-    return overrideSetting;
+  const override = overrideSetting?.trim();
+  if (override) {
+    return override;
   }
 
   const exe = process.platform === "win32" ? `${name}.exe` : name;
@@ -57,13 +59,8 @@ export function resolveBinary(
     }
   }
 
-  const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
-  for (const dir of pathDirs) {
-    const candidate = path.join(dir, exe);
-    if (candidate && fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return undefined;
+  // An empty PATH entry means "the current directory"; skip those rather
+  // than run whatever happens to sit in the workspace.
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  return pathDirs.map((dir) => path.join(dir, exe)).find((candidate) => fs.existsSync(candidate));
 }

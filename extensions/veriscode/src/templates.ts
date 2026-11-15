@@ -6,18 +6,19 @@ export interface TemplateOption {
   id: string;
   label: string;
   description: string;
-  kind: TemplateKind;
   /**
-   * Source file(s) relative to the extension's templates/ directory.
+   * How the files are turned into a project (see projectScaffold.ts):
    * - "single-renamed": exactly one file; its module and filename are
    *   renamed to match the project name (the general-purpose starter).
    * - "files": copied verbatim, filenames and module names untouched -
    *   for designs that reference each other by a fixed module name
-   *   (e.g. full_adder instantiating half_adder), renaming would break
-   *   the cross-reference.
-   * - "workshop": every file in templates/workshop/, copied verbatim,
-   *   plus a generated guide (see newProject.ts).
+   *   (e.g. full_adder instantiating half_adder), where renaming would
+   *   break the cross-reference.
+   * - "workshop": like "files", but the workshop's GUIDE.md becomes the
+   *   project README instead of the generic one.
    */
+  kind: TemplateKind;
+  /** Source file(s), relative to the extension's templates/ directory. */
   files: string[];
 }
 

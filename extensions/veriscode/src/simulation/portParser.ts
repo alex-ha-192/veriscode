@@ -20,24 +20,13 @@ const RESET_POLARITY_SUFFIX = /^(n|ni|nn|b)$/;
  */
 export function detectResetPolarity(name: string): "active-low" | "active-high" | undefined {
   const tokens = name.toLowerCase().split("_").filter(Boolean);
-  let coreIdx = -1;
-  let coreMatch: RegExpExecArray | null = null;
-  for (let i = 0; i < tokens.length; i++) {
-    const m = RESET_CORE.exec(tokens[i]);
-    if (m) {
-      coreIdx = i;
-      coreMatch = m;
-      break;
-    }
-  }
-  if (!coreMatch) return undefined;
+  const coreIdx = tokens.findIndex((token) => RESET_CORE.test(token));
+  if (coreIdx === -1) return undefined;
 
-  const negatedPrefix = !!coreMatch[2]; // nrst / nreset
-  const negatedSuffix = !!coreMatch[4]; // rstn / resetn
+  const [, , negatedPrefix, , negatedSuffix] = RESET_CORE.exec(tokens[coreIdx])!; // nrst / rstn
   const nextToken = tokens[coreIdx + 1];
-  const suffixPolarity = nextToken !== undefined && RESET_POLARITY_SUFFIX.test(nextToken); // rst_n / reset_b
-  const activeLow = negatedPrefix || negatedSuffix || suffixPolarity;
-  return activeLow ? "active-low" : "active-high";
+  const suffixToken = nextToken !== undefined && RESET_POLARITY_SUFFIX.test(nextToken); // rst_n / reset_b
+  return negatedPrefix || negatedSuffix || suffixToken ? "active-low" : "active-high";
 }
 
 /**
@@ -196,13 +185,18 @@ const TYPE_KEYWORDS = new Set([
 
 const UNRESOLVED_WIDTH_FALLBACK = 32;
 
+/**
+ * Parses one comma-separated entry of an ANSI port list. `carry` holds the
+ * direction of the previous entry, which an entry without its own
+ * direction keyword inherits (`input logic a, b`).
+ */
 function parsePortDecl(
   decl: string,
   carry: { direction: PortDirection },
   params: Record<string, number>
-): Port[] {
+): Port | undefined {
   const tokens = decl.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return [];
+  if (tokens.length === 0) return undefined;
 
   let idx = 0;
   if (DIRECTIONS.includes(tokens[0] as PortDirection)) {
@@ -214,34 +208,25 @@ function parsePortDecl(
     idx++;
   }
 
-  // What remains is: optional [packed range] name1 [unpacked], name2, ...
-  // We already split on top-level commas at the call site, so there is a
-  // single name here (possibly with a leading packed range attached).
+  // What remains is an optional [packed range] followed by the port name.
   const rest = tokens.slice(idx).join(" ");
   const rangeMatch = /^\s*(\[[^\]]*\])\s*/.exec(rest);
   const packedRange = rangeMatch ? rangeMatch[1] : undefined;
   const afterRange = rangeMatch ? rest.slice(rangeMatch[0].length) : rest;
   const nameMatch = /^([A-Za-z_][A-Za-z0-9_$]*)/.exec(afterRange.trim());
-  if (!nameMatch) return [];
+  if (!nameMatch) return undefined;
   const name = nameMatch[1];
 
-  const resolved = widthOfRange(packedRange, params);
-  const width = resolved ?? UNRESOLVED_WIDTH_FALLBACK;
-  const declRange = width > 1 ? `[${width - 1}:0]` : undefined;
-  const resetPolarity = detectResetPolarity(name);
+  const width = widthOfRange(packedRange, params) ?? UNRESOLVED_WIDTH_FALLBACK;
 
-  return [
-    {
-      name,
-      direction: carry.direction,
-      packedRange,
-      width,
-      widthResolved: resolved !== null,
-      declRange,
-      isClockLike: CLOCK_NAME.test(name),
-      resetPolarity,
-    },
-  ];
+  return {
+    name,
+    direction: carry.direction,
+    width,
+    declRange: width > 1 ? `[${width - 1}:0]` : undefined,
+    isClockLike: CLOCK_NAME.test(name),
+    resetPolarity: detectResetPolarity(name),
+  };
 }
 
 /**
@@ -257,14 +242,11 @@ export function parseModule(src: string): ParsedModule | null {
   if (!moduleMatch) return null;
   const name = moduleMatch[1];
 
-  let cursor = moduleMatch.index + moduleMatch[0].length;
-
   // Optional #( parameter list ) before the port list - skip it.
-  const afterName = clean.slice(cursor);
-  const hashIdx = afterName.search(/\S/);
-  let portListSearchFrom = cursor;
-  if (hashIdx !== -1 && afterName[hashIdx] === "#") {
-    const paramBlock = matchParens(clean, cursor);
+  const afterName = moduleMatch.index + moduleMatch[0].length;
+  let portListSearchFrom = afterName;
+  if (/^\s*#/.test(clean.slice(afterName))) {
+    const paramBlock = matchParens(clean, afterName);
     if (paramBlock) {
       portListSearchFrom = paramBlock.end + 1;
     }
@@ -279,10 +261,9 @@ export function parseModule(src: string): ParsedModule | null {
 
   const ports: Port[] = [];
   const carry = { direction: "input" as PortDirection };
-  for (const rawDecl of splitTopLevel(portListText)) {
-    const decl = rawDecl.trim();
-    if (!decl) continue;
-    ports.push(...parsePortDecl(decl, carry, params));
+  for (const decl of splitTopLevel(portListText)) {
+    const port = parsePortDecl(decl, carry, params);
+    if (port) ports.push(port);
   }
 
   return { name, ports, sourceText: src };

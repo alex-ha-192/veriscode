@@ -20,7 +20,7 @@ module simple_cpu (
   localparam logic [3:0] OP_JZ   = 4'b0110;
   localparam logic [3:0] OP_HALT = 4'b1111;
 
-  logic [7:0] mem [0:15];
+  logic [7:0] mem[16];
 
   // A tiny demo program: ACC = mem[8] + mem[9], store it at mem[10], halt.
   initial begin

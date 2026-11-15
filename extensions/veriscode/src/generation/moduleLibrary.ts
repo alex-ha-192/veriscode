@@ -10,12 +10,10 @@ export interface LibraryModule {
 }
 
 /**
- * Scans `folder` (non-recursive - matches the rest of this codebase's "put
- * your files in one folder, no import system" teaching model) for .sv/.v
- * files and parses each with the same lightweight parser used everywhere
- * else. Files with no `module ... (...)` declaration are silently skipped;
- * this is a convenience listing for the composer's palette, not a build
- * step, so a stray non-module file just doesn't show up.
+ * Parses every .sv/.v file directly inside `folder` (see listSvFiles) into
+ * the composer's palette of available modules. Files that can't be read
+ * or contain no module declaration are skipped: this is a convenience
+ * listing, not a build step.
  */
 export function listModulesInFolder(folder: string): LibraryModule[] {
   const modules: LibraryModule[] = [];

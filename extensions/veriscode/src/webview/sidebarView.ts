@@ -1,21 +1,29 @@
+import * as path from "path";
 import * as vscode from "vscode";
+import { isSystemVerilogDoc } from "../language";
 import { parseModule } from "../simulation/portParser";
-import { isSystemVerilogDoc } from "../isSystemVerilogDoc";
-import { getNonce, contentSecurityPolicy } from "./webviewUtils";
+import { renderWebviewPage, webviewOptions } from "./webviewUtils";
+
+/** The sidebar's buttons; each one runs the `veriscode.*` command of the same name. */
+const BUTTON_COMMANDS = ["newProject", "composeTop", "simulate"];
+
+/** Messages from media/sidebar.js: "ready", or the name of the button that was clicked. */
+interface FromSidebar {
+  type: string;
+}
 
 /**
- * A PlatformIO-style Activity Bar panel: quick actions (New Project,
- * Simulate) plus a live summary of whichever SystemVerilog module is
- * currently active. The actual interactive timing diagram still opens as
- * its own editor-area panel (SimulatorPanel) rather than living in this
- * sidebar - a wide per-cycle grid doesn't fit usefully in a narrow
- * sidebar, so this view is a launcher/status hub in front of it, the way
- * PlatformIO's sidebar is a task list in front of its full-tab PIO Home.
+ * The Activity Bar view: quick actions (New Project, Build Top Module,
+ * Simulate) plus a live summary of the module in the active editor. It is
+ * a launcher, not the simulator itself - a per-cycle grid needs the width
+ * of an editor tab, so that opens as its own panel (SimulatorPanel).
  */
 export class SidebarViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = "veriscode.home";
 
   private view: vscode.WebviewView | undefined;
+  /** The summary the webview is currently showing, so an identical one isn't sent again. */
+  private shown: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     context.subscriptions.push(
@@ -30,73 +38,57 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "media")],
-    };
-    webviewView.webview.html = this.renderHtml(webviewView.webview);
+    webviewView.webview.options = webviewOptions(this.context.extensionUri);
+    webviewView.webview.html = renderWebviewPage(webviewView.webview, this.context.extensionUri, {
+      title: "Veriscode",
+      styles: ["base.css", "sidebar.css"],
+      scripts: ["sidebar.js"],
+      body: SIDEBAR_BODY,
+    });
 
-    webviewView.webview.onDidReceiveMessage((msg) => {
-      switch (msg?.type) {
-        case "ready":
-          this.pushActiveModule();
-          break;
-        case "newProject":
-          void vscode.commands.executeCommand("veriscode.newProject");
-          break;
-        case "composeTop":
-          void vscode.commands.executeCommand("veriscode.composeTop");
-          break;
-        case "simulate":
-          void vscode.commands.executeCommand("veriscode.simulate");
-          break;
+    webviewView.onDidChangeVisibility(() => this.pushActiveModule());
+    webviewView.webview.onDidReceiveMessage((msg: FromSidebar) => {
+      if (msg.type === "ready") {
+        this.shown = undefined; // A freshly loaded page shows nothing yet.
+        this.pushActiveModule();
+      } else if (BUTTON_COMMANDS.includes(msg.type)) {
+        void vscode.commands.executeCommand(`veriscode.${msg.type}`);
       }
     });
   }
 
+  /**
+   * Sends the active editor's module summary to the view. This runs on
+   * every keystroke in the active document, so it does nothing while the
+   * view is hidden (a hidden view is reloaded, and asks again, when shown)
+   * or when the summary hasn't changed - most edits don't touch the ports.
+   */
   private pushActiveModule(): void {
-    if (!this.view) return;
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || !isSystemVerilogDoc(editor.document)) {
-      this.view.webview.postMessage({ type: "activeModule", fileName: null, module: null });
-      return;
-    }
-    const fileName = editor.document.uri.path.split("/").pop() ?? editor.document.uri.fsPath;
-    const module = parseModule(editor.document.getText());
-    this.view.webview.postMessage({
+    if (!this.view?.visible) return;
+    const document = vscode.window.activeTextEditor?.document;
+    const module = document && isSystemVerilogDoc(document) ? parseModule(document.getText()) : null;
+    const summary = {
       type: "activeModule",
-      fileName,
+      fileName: document && isSystemVerilogDoc(document) ? path.posix.basename(document.uri.path) : null,
       module: module ? { name: module.name, ports: module.ports } : null,
-    });
+    };
+    const serialized = JSON.stringify(summary);
+    if (serialized !== this.shown) {
+      this.shown = serialized;
+      void this.view.webview.postMessage(summary);
+    }
   }
+}
 
-  private renderHtml(webview: vscode.Webview): string {
-    const nonce = getNonce();
-    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, "media", "sidebar.js"));
-    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, "media", "sidebar.css"));
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy(webview, nonce)}" />
-  <link rel="stylesheet" href="${styleUri}" />
-  <title>Veriscode</title>
-</head>
-<body>
-  <button id="newProject">+ New SystemVerilog Project</button>
-  <button class="secondary" id="composeTop">Build Top Module (GUI)</button>
+const SIDEBAR_BODY = `
+  <button id="newProject">New SystemVerilog Project</button>
+  <button class="secondary" id="composeTop">Build Top Module</button>
 
-  <h2>Active File</h2>
-  <div id="emptySection">Open a .sv file to see it here.</div>
-  <div id="activeSection" style="display:none">
+  <h2>Active file</h2>
+  <p id="emptySection" class="muted">Open a .sv file to see it here.</p>
+  <div id="activeSection" hidden>
     <div class="module-name" id="moduleName"></div>
     <div class="file-name" id="fileName"></div>
     <ul id="portList"></ul>
-    <button id="simulate" class="secondary">▶ Simulate</button>
-  </div>
-
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-  }
-}
+    <button class="secondary" id="simulate">▶ Simulate</button>
+  </div>`;

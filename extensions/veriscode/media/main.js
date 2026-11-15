@@ -1,437 +1,375 @@
-// Webview client for the Veriscode interactive simulator. Plain DOM/JS by
-// design - no bundler, no framework - since this only ever runs inside a
-// single VS Code webview and the surface area is small.
+// Webview client for the Veriscode simulator panel: the editable timing
+// diagram and the read-only Logical Schematic tab. Plain DOM/JS by design
+// - no bundler, no framework - since it only ever runs inside one webview
+// and the surface area is small. The extension-host side is
+// src/webview/panel.ts, which documents the messages exchanged.
 (function () {
   const vscode = acquireVsCodeApi();
+  const { attach, netOf, makeBadge, makeRemoveButton } = window.VeriscodeSchematic;
 
+  const SVG_NS = "http://www.w3.org/2000/svg";
   const CELL_W = 56;
   const ROW_H = 30;
-  const WAVE_HIGH_Y = 6;
-  const WAVE_LOW_Y = ROW_H - 6;
+  /** Where each 1-bit level sits within a row. */
+  const WAVE_Y = { 1: 6, 0: ROW_H - 6, z: ROW_H / 2 };
 
-  /** @type {{module: any, steps: Record<string,string>[], clockPeriodNs: number, hasClock: boolean, instances: any[]}} */
+  /** @type {{module: {name: string, ports: any[]}, steps: Record<string,string>[], clockPeriodNs: number, hasClock: boolean, instances: any[]}} */
   let state = { module: { name: "", ports: [] }, steps: [], clockPeriodNs: 10, hasClock: false, instances: [] };
-  /** @type {Array<{name:string, direction:string, width:number, values:string[]}>} */
-  let lastSignals = [];
+  /** Signal name -> one value per step, from the latest successful run. Empty until one arrives. */
+  let results = new Map();
 
-  const el = {
-    title: document.getElementById("title"),
-    subtitle: document.getElementById("subtitle"),
-    status: document.getElementById("status"),
-    errorLog: document.getElementById("errorLog"),
-    diagram: document.getElementById("diagram"),
-    addCycle: document.getElementById("addCycle"),
-    rerun: document.getElementById("rerun"),
-    tabTiming: document.getElementById("tabTiming"),
-    tabSchematic: document.getElementById("tabSchematic"),
-    timingView: document.getElementById("timingView"),
-    schematicView: document.getElementById("schematicView"),
-    schematicCanvas: document.getElementById("schematicCanvas"),
-  };
+  const el = Object.fromEntries(
+    [
+      "title", "subtitle", "status", "errorLog", "diagram", "addCycle", "rerun",
+      "tabTiming", "tabSchematic", "timingView", "schematicView", "schematicLegend", "schematicCanvas",
+    ].map((id) => [id, document.getElementById(id)])
+  );
+  const schematic = attach(el.schematicCanvas);
 
   el.addCycle.addEventListener("click", () => vscode.postMessage({ type: "addCycle" }));
   el.rerun.addEventListener("click", () => vscode.postMessage({ type: "rerun" }));
+  el.tabTiming.addEventListener("click", () => selectTab(el.tabTiming));
+  el.tabSchematic.addEventListener("click", () => selectTab(el.tabSchematic));
 
-  function selectTab(tab) {
-    const timing = tab === "timing";
-    el.tabTiming.classList.toggle("active", timing);
-    el.tabSchematic.classList.toggle("active", !timing);
-    el.timingView.style.display = timing ? "" : "none";
-    el.schematicView.style.display = timing ? "none" : "";
-    if (!timing) renderSchematic();
+  function selectTab(selectedTab) {
+    for (const [tab, view] of [[el.tabTiming, el.timingView], [el.tabSchematic, el.schematicView]]) {
+      tab.setAttribute("aria-selected", String(tab === selectedTab));
+      view.hidden = tab !== selectedTab;
+    }
+    if (!el.schematicView.hidden) renderSchematic();
   }
-  el.tabTiming.addEventListener("click", () => selectTab("timing"));
-  el.tabSchematic.addEventListener("click", () => selectTab("schematic"));
 
-  window.addEventListener("message", (event) => {
-    const msg = event.data;
+  window.addEventListener("message", ({ data: msg }) => {
     switch (msg.type) {
       case "init":
         state = msg.state;
-        lastSignals = [];
+        results = new Map();
+        render();
+        break;
+      case "steps":
+        state.steps = msg.steps;
         render();
         break;
       case "status":
         setStatus(msg.message, msg.kind);
         break;
       case "result":
-        if (msg.result.ok) {
-          lastSignals = msg.result.signals;
-          setStatus(`Simulated ${state.steps.length} ${state.hasClock ? "cycles" : "steps"}`, "ok");
-          el.errorLog.style.display = "none";
-        } else {
-          setStatus("Simulation failed - see log below", "error");
-          el.errorLog.style.display = "block";
-          el.errorLog.textContent = msg.result.log;
-        }
-        renderValues();
-        break;
-      case "steps":
-        state.steps = msg.steps;
-        render();
+        showResult(msg.result);
         break;
     }
   });
 
+  function showResult(result) {
+    // After a failed run the outputs are left blank rather than showing
+    // values from an earlier, different run.
+    results = new Map(result.ok ? result.signals.map((signal) => [signal.name, signal.values]) : []);
+    if (result.ok) {
+      const count = state.steps.length;
+      const unit = state.hasClock ? "cycle" : "step";
+      setStatus(`Simulated ${count} ${unit}${count === 1 ? "" : "s"}`, "ok");
+    } else {
+      setStatus("Simulation failed - see the log below", "error");
+      el.errorLog.textContent = result.log;
+    }
+    el.errorLog.hidden = result.ok;
+    renderValues();
+  }
+
   function setStatus(text, kind) {
     el.status.textContent = text;
-    el.status.className = kind || "";
+    el.status.className = kind;
   }
 
+  /**
+   * The value to show for a signal at a step: the simulated one if there
+   * is a result, else what's staged for an input, else undefined (an
+   * output with nothing to show yet).
+   */
   function valueAt(signalName, stepIndex) {
-    const sig = lastSignals.find((s) => s.name === signalName);
-    if (sig) return sig.values[stepIndex] ?? "x";
-    // No result yet: for inputs, show what's staged; outputs show unknown.
-    return state.steps[stepIndex]?.[signalName] ?? "x";
+    return results.get(signalName)?.[stepIndex] ?? state.steps[stepIndex]?.[signalName];
   }
+
+  const isEditable = (port) => port.direction === "input" && !port.isClockLike;
+
+  // --- Timing diagram ------------------------------------------------------
 
   function render() {
-    el.title.textContent = state.module.name ? `module ${state.module.name}` : "No module";
+    el.title.textContent = `module ${state.module.name}`;
     el.subtitle.textContent = state.hasClock
       ? `Clocked design - one column per clock cycle (${state.clockPeriodNs}ns period)`
       : "Combinational design - one column per time step";
+    el.addCycle.textContent = state.hasClock ? "+ Cycle" : "+ Step";
 
-    const n = state.steps.length;
-    el.diagram.innerHTML = "";
-    el.diagram.style.gridTemplateColumns = `190px repeat(${n}, ${CELL_W}px)`;
+    const stepCount = state.steps.length;
+    el.diagram.replaceChildren();
+    el.diagram.style.gridTemplateColumns = `max-content repeat(${stepCount}, ${CELL_W}px)`;
 
-    // Header row.
-    el.diagram.appendChild(makeDiv("row-label", ""));
-    for (let i = 0; i < n; i++) {
+    el.diagram.appendChild(makeDiv("row-label header-cell"));
+    for (let i = 0; i < stepCount; i++) {
       const header = makeDiv("header-cell", state.hasClock ? `cycle ${i}` : `t${i}`);
-      if (n > 1) {
-        const remove = makeRemoveButton("remove", "Remove this column", () =>
-          vscode.postMessage({ type: "removeStep", step: i })
+      if (stepCount > 1) {
+        header.appendChild(
+          makeRemoveButton("Remove this column", () => vscode.postMessage({ type: "removeStep", step: i }))
         );
-        header.appendChild(remove);
       }
       el.diagram.appendChild(header);
     }
 
-    // The clock itself isn't shown - it's not editable and always samples
-    // as a flat "1" (see sampleTimeForStep), so a row for it conveys
-    // nothing beyond what the subtitle above already says.
-    const inputs = state.module.ports.filter((p) => p.direction === "input" && !p.isClockLike);
-    const outputs = state.module.ports.filter((p) => p.direction !== "input");
-
-    for (const p of inputs) renderRow(p, true);
-    for (const p of outputs) renderRow(p, false);
-
+    // Inputs first, then outputs. The clock gets no row: it isn't editable
+    // and, sampled once per cycle, would just be a flat line.
+    const ports = state.module.ports;
+    for (const port of ports.filter(isEditable)) renderRow(port);
+    for (const port of ports.filter((p) => p.direction !== "input")) renderRow(port);
     renderValues();
 
-    // Keep the diagram tab's content in sync even while it's hidden, so
-    // switching to it never shows stale data from before a save/reparse.
-    if (el.schematicView.style.display !== "none") renderSchematic();
+    if (!el.schematicView.hidden) renderSchematic();
   }
 
-  function renderRow(port, editable) {
-    const label = makeDiv("row-label", "");
-    const nameSpan = document.createElement("span");
-    nameSpan.textContent = port.name;
-    const dir = document.createElement("span");
-    dir.className = `dir ${port.direction}`;
-    dir.textContent = port.width > 1 ? `${port.direction} [${port.width - 1}:0]` : port.direction;
-    label.appendChild(nameSpan);
-    label.appendChild(dir);
+  function renderRow(port) {
+    const label = makeDiv("row-label");
+    label.appendChild(makeSpan("signal-name", port.name));
+    label.appendChild(makeBadge(port.direction, port.direction + rangeOf(port)));
     if (port.resetPolarity) {
-      const reset = document.createElement("span");
-      reset.className = "dir reset";
-      reset.title =
-        port.resetPolarity === "active-low"
-          ? "Looks like an active-low reset: 0 = held in reset, 1 = running normally."
-          : "Looks like an active-high reset: 1 = held in reset, 0 = running normally.";
-      reset.textContent = port.resetPolarity === "active-low" ? "reset (low)" : "reset (high)";
-      label.appendChild(reset);
+      const activeLow = port.resetPolarity === "active-low";
+      const badge = makeBadge("reset", activeLow ? "reset (low)" : "reset (high)");
+      badge.title = activeLow
+        ? "Looks like an active-low reset: 0 = held in reset, 1 = running normally."
+        : "Looks like an active-high reset: 1 = held in reset, 0 = running normally.";
+      label.appendChild(badge);
     }
     el.diagram.appendChild(label);
 
-    if (port.width === 1 && !editable) {
-      // Read-only 1-bit output: waveform trace, no edit affordances.
-      el.diagram.appendChild(makeWaveCell(port, false));
-    } else if (port.width === 1) {
-      el.diagram.appendChild(makeWaveCell(port, true));
+    if (port.width === 1) {
+      el.diagram.appendChild(makeWaveCell(port));
     } else {
-      const n = state.steps.length;
-      for (let i = 0; i < n; i++) {
-        el.diagram.appendChild(makeBusCell(port, i, editable));
-      }
+      state.steps.forEach((_, i) => el.diagram.appendChild(makeBusCell(port, i)));
     }
   }
 
-  function makeDiv(cls, text) {
-    const d = document.createElement("div");
-    d.className = cls;
-    if (text) d.textContent = text;
-    return d;
+  /** " [7:0]" for a bus, "" for a single bit. */
+  function rangeOf(port) {
+    return port.width > 1 ? ` [${port.width - 1}:0]` : "";
   }
 
-  function makeBusCell(port, stepIndex, editable) {
-    const cell = document.createElement("div");
-    cell.className = "cell";
-    const inner = document.createElement("div");
-    inner.className = `bus-cell ${port.direction}` + (editable ? " editable" : "");
-    inner.dataset.signal = port.name;
-    inner.dataset.step = String(stepIndex);
-    inner.textContent = "…";
-    cell.appendChild(inner);
-    if (editable) {
-      inner.addEventListener("click", () => openInlineEditor(inner, port.name, stepIndex));
+  function makeDiv(className, text = "") {
+    const div = document.createElement("div");
+    div.className = className;
+    div.textContent = text;
+    return div;
+  }
+
+  function makeSpan(className, text) {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    return span;
+  }
+
+  /** One cell of a multi-bit row; its text is filled in by renderValues. */
+  function makeBusCell(port, stepIndex) {
+    const cell = makeDiv(`cell bus-cell ${port.direction}`);
+    cell.dataset.signal = port.name;
+    cell.dataset.step = String(stepIndex);
+    if (isEditable(port)) {
+      cell.classList.add("editable");
+      cell.addEventListener("click", () => {
+        if (cell.querySelector("input")) return; // Already editing.
+        cell.textContent = "";
+        openEditor(cell, port.name, stepIndex);
+      });
     }
     return cell;
   }
 
-  // Builds the actual <input> for an inline cell edit - value, commit (on
-  // blur, trimmed, empty falls back to "0"), and Enter/Escape handling.
-  // Shared by openInlineEditor (bus cells, a plain DOM cell) and
-  // openSvgEditor (1-bit wave cells, where the input lives inside an SVG
-  // foreignObject) - the only real difference between the two call sites
-  // is how the returned input gets attached to the page.
-  function makeCellEditor(current, signalName, stepIndex) {
-    const input = document.createElement("input");
-    input.className = "cell-edit-input";
-    input.value = current;
-    const commit = () => {
-      const value = input.value.trim() || "0";
-      vscode.postMessage({ type: "setValue", step: stepIndex, signal: signalName, value });
-    };
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") input.blur();
-      if (e.key === "Escape") {
-        input.value = current;
-        input.blur();
-      }
-    });
-    input.addEventListener("blur", commit, { once: true });
-    return input;
-  }
-
-  function openInlineEditor(hostEl, signalName, stepIndex) {
-    const current = state.steps[stepIndex]?.[signalName] ?? "0";
-    const input = makeCellEditor(current, signalName, stepIndex);
-    hostEl.textContent = "";
-    hostEl.appendChild(input);
-    input.focus();
-    input.select();
-  }
-
-  function makeWaveCell(port, editable) {
-    const n = state.steps.length;
-    const cell = document.createElement("div");
-    cell.className = "cell wave-row";
-    cell.style.gridColumn = `span ${n}`;
-    const width = n * CELL_W;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "wave");
+  /** A 1-bit row: one SVG spanning every step; the trace is drawn by renderValues. */
+  function makeWaveCell(port) {
+    const width = state.steps.length * CELL_W;
+    const cell = makeDiv("cell wave-row");
+    cell.style.gridColumn = `span ${state.steps.length}`;
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", `wave ${port.direction}`);
     svg.setAttribute("width", String(width));
     svg.setAttribute("height", String(ROW_H));
-    svg.setAttribute("viewBox", `0 0 ${width} ${ROW_H}`);
     svg.dataset.signal = port.name;
     cell.appendChild(svg);
     return cell;
   }
 
-  function renderValues() {
-    // Bus cells. Scoped to the diagram grid, not the whole document - this
-    // runs after every simulation result, so there's no reason to have it
-    // walk unrelated parts of the page (the schematic tab, toolbar, etc).
-    el.diagram.querySelectorAll(".bus-cell").forEach((elm) => {
-      const div = /** @type {HTMLElement} */ (elm);
-      if (div.querySelector("input")) return; // mid-edit, don't clobber
-      const signal = div.dataset.signal;
-      const step = Number(div.dataset.step);
-      const value = valueAt(signal, step);
-      div.textContent = value;
-      div.classList.toggle("unknown", /[xz]/i.test(value));
-    });
-
-    // Wave (1-bit) rows.
-    el.diagram.querySelectorAll("svg.wave").forEach((elm) => {
-      const svg = /** @type {SVGSVGElement} */ (elm);
-      const signal = svg.dataset.signal;
-      const port = state.module.ports.find((p) => p.name === signal);
-      const editable = port && port.direction === "input" && !port.isClockLike;
-      drawWave(svg, signal, editable);
-    });
-  }
-
-  function drawWave(svg, signalName, editable) {
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    const n = state.steps.length;
-    const values = [];
-    for (let i = 0; i < n; i++) values.push(valueAt(signalName, i));
-
-    const port = state.module.ports.find((p) => p.name === signalName);
-    const isOutput = port && port.direction !== "input";
-
-    let d = "";
-    for (let i = 0; i < n; i++) {
-      const x0 = i * CELL_W;
-      const x1 = x0 + CELL_W;
-      const y = values[i] === "1" ? WAVE_HIGH_Y : WAVE_LOW_Y;
-      d += i === 0 ? `M ${x0} ${y} ` : ``;
-      const prevY = i === 0 ? y : values[i - 1] === "1" ? WAVE_HIGH_Y : WAVE_LOW_Y;
-      if (i > 0 && prevY !== y) {
-        d += `L ${x0} ${prevY} L ${x0} ${y} `;
-      } else if (i === 0) {
-        d += "";
-      }
-      d += `L ${x1} ${y} `;
-    }
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("class", "trace" + (isOutput ? " output" : ""));
-    path.setAttribute("d", d.trim());
-    svg.appendChild(path);
-
-    if (editable) {
-      for (let i = 0; i < n; i++) {
-        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        rect.setAttribute("class", "hit editable");
-        rect.setAttribute("x", String(i * CELL_W));
-        rect.setAttribute("y", "0");
-        rect.setAttribute("width", String(CELL_W));
-        rect.setAttribute("height", String(ROW_H));
-        rect.addEventListener("click", () => openSvgEditor(svg, signalName, i));
-        svg.appendChild(rect);
-      }
-    }
-  }
-
-  function openSvgEditor(svg, signalName, stepIndex) {
+  /**
+   * Puts a text field into `host` for editing one input value. Enter or
+   * clicking away commits (blank means 0); Escape puts the old value back.
+   */
+  function openEditor(host, signalName, stepIndex) {
     const current = state.steps[stepIndex]?.[signalName] ?? "0";
-    const fo = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
-    fo.setAttribute("x", String(stepIndex * CELL_W + 2));
-    fo.setAttribute("y", "2");
-    fo.setAttribute("width", String(CELL_W - 4));
-    fo.setAttribute("height", String(ROW_H - 4));
-    const input = makeCellEditor(current, signalName, stepIndex);
-    fo.appendChild(input);
-    svg.appendChild(fo);
+    const input = document.createElement("input");
+    input.className = "cell-edit-input";
+    input.spellcheck = false;
+    input.value = current;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") input.value = current;
+      if (e.key === "Enter" || e.key === "Escape") input.blur();
+    });
+    input.addEventListener(
+      "blur",
+      () => {
+        const value = input.value.trim() || "0";
+        state.steps[stepIndex][signalName] = value;
+        input.remove();
+        renderValues();
+        if (value !== current) {
+          vscode.postMessage({ type: "setValue", step: stepIndex, signal: signalName, value });
+        }
+      },
+      { once: true }
+    );
+    host.appendChild(input);
     input.focus();
     input.select();
   }
 
-  // --- Diagram tab: a read-only structural view of the module and any
-  // submodules it instantiates, built from parsing the source (no live
-  // simulation values here - see instanceParser.ts for why this stays
-  // structure-only rather than trying to show internal signal values).
-  // Boxes are draggable purely for visual rearrangement; positions persist
-  // for the life of the panel, keyed by a stable box id.
+  /** Fills every cell and trace from the latest values. Runs after each simulation result. */
+  function renderValues() {
+    for (const cell of el.diagram.querySelectorAll(".bus-cell")) {
+      if (cell.querySelector("input")) continue; // Mid-edit: don't clobber it.
+      const step = Number(cell.dataset.step);
+      const value = valueAt(cell.dataset.signal, step) ?? "";
+      cell.textContent = value;
+      cell.title = describeValue(value);
+      cell.classList.toggle("unknown", /^[xz]$/i.test(value));
+      cell.classList.toggle("changed", step > 0 && value !== (valueAt(cell.dataset.signal, step - 1) ?? ""));
+    }
+    for (const svg of el.diagram.querySelectorAll("svg.wave")) {
+      if (svg.querySelector("input")) continue;
+      const port = state.module.ports.find((p) => p.name === svg.dataset.signal);
+      drawWave(svg, port);
+    }
+  }
 
-  /** @type {Record<string, {x: number, y: number}>} */
-  const boxPositions = {};
-  const { ensurePosition, positionBox, makeDraggable, makeRemoveButton } = window.VeriscodeSchematic;
+  /** A tooltip giving a simulated bus value in decimal, hex and binary. */
+  function describeValue(value) {
+    if (!/^\d+$/.test(value)) return "";
+    const n = BigInt(value);
+    return `${n} = 0x${n.toString(16).toUpperCase()} = 0b${n.toString(2)}`;
+  }
+
+  /**
+   * Classifies a 1-bit value: "0", "1", "z" (high impedance), "x"
+   * (unknown), or undefined when there is nothing to draw yet. Besides
+   * simulated values this sees staged input text, so `1'b1` and `'1` count as 1.
+   */
+  function levelOf(value) {
+    if (value === undefined) return undefined;
+    const bit = /^(?:1?'[bdh]?)?([01xz])$/i.exec(value.trim());
+    return bit ? bit[1].toLowerCase() : "x";
+  }
+
+  function svgElement(tag, className, attrs) {
+    const element = document.createElementNS(SVG_NS, tag);
+    element.setAttribute("class", className);
+    for (const [name, value] of Object.entries(attrs)) element.setAttribute(name, String(value));
+    return element;
+  }
+
+  function drawWave(svg, port) {
+    const stepCount = state.steps.length;
+    const shapes = [];
+    const add = (tag, className, attrs, tooltip) => {
+      const shape = svgElement(tag, className, attrs);
+      if (tooltip) shape.appendChild(document.createElementNS(SVG_NS, "title")).textContent = tooltip;
+      shapes.push(shape);
+      return shape;
+    };
+
+    for (let i = 1; i < stepCount; i++) {
+      add("line", "grid", { x1: i * CELL_W, x2: i * CELL_W, y1: 0, y2: ROW_H });
+    }
+
+    // One continuous trace through runs of 0/1 (with a vertical edge
+    // wherever the level changes); x and z steps interrupt it and are
+    // drawn as their own shapes.
+    let trace = "";
+    let penDown = false;
+    for (let i = 0; i < stepCount; i++) {
+      const level = levelOf(valueAt(port.name, i));
+      const x = i * CELL_W;
+      if (level === "0" || level === "1") {
+        trace += `${penDown ? "L" : "M"} ${x} ${WAVE_Y[level]} L ${x + CELL_W} ${WAVE_Y[level]} `;
+        penDown = true;
+        continue;
+      }
+      penDown = false;
+      if (level === "x") {
+        const band = { x, y: WAVE_Y[1], width: CELL_W, height: WAVE_Y[0] - WAVE_Y[1] };
+        add("rect", "unknown", band, "x - unknown value");
+      } else if (level === "z") {
+        add("line", "high-z", { x1: x, x2: x + CELL_W, y1: WAVE_Y.z, y2: WAVE_Y.z }, "z - not driven (high impedance)");
+      }
+    }
+    add("path", "trace", { d: trace.trim() });
+
+    if (isEditable(port)) {
+      for (let i = 0; i < stepCount; i++) {
+        const hit = add("rect", "hit", { x: i * CELL_W, y: 0, width: CELL_W, height: ROW_H });
+        hit.addEventListener("click", () => {
+          const frame = { x: i * CELL_W + 2, y: 2, width: CELL_W - 4, height: ROW_H - 4 };
+          openEditor(svg.appendChild(svgElement("foreignObject", "editor", frame)), port.name, i);
+        });
+      }
+    }
+    svg.replaceChildren(...shapes);
+  }
+
+  // --- Logical Schematic ---------------------------------------------------
+  // A structural picture of the module and the submodules it instantiates,
+  // built from the source text. It shows wiring only, not live values.
 
   function renderSchematic() {
-    const canvas = el.schematicCanvas;
-    canvas.innerHTML = "";
-
-    if (!state.module.name) {
-      canvas.appendChild(makeDiv("schematic-empty", "No module to show."));
-      return;
-    }
-
-    const topPorts = state.module.ports;
-    const topBox = makeSchematicBox("top", state.module.name, "top-level module", topPorts, true);
-    const topPos = ensurePosition(boxPositions, "top", 20, 20);
-    positionBox(topBox, topPos);
-    canvas.appendChild(topBox);
-
-    if (state.instances.length === 0) {
-      const hint = makeDiv(
-        "schematic-empty",
-        "This module doesn't instantiate any submodules - it's a single block."
-      );
-      hint.style.position = "absolute";
-      hint.style.left = "20px";
-      hint.style.top = "140px";
-      canvas.appendChild(hint);
-    } else {
-      state.instances.forEach((inst, i) => {
-        const ports = Object.keys(inst.connections).map((portName) => ({
-          name: portName,
-          // We don't know the submodule's own port directions (its source
-          // isn't necessarily open/parsed) - shown neutrally instead of
-          // guessing input/output.
-          direction: "port",
-          width: 1,
-          netName: inst.connections[portName],
-        }));
-        const box = makeSchematicBox(
-          `inst:${inst.instanceName}`,
-          inst.instanceName,
-          inst.moduleType,
-          ports,
-          false
-        );
-        const pos = ensurePosition(boxPositions, `inst:${inst.instanceName}`, 320, 20 + i * 170);
-        positionBox(box, pos);
-        canvas.appendChild(box);
-      });
-    }
-
-    // Hovering any net-name label highlights every other label with the
-    // same net name, across every box - the "trace the wire" interaction
-    // that stands in for drawing an actual connecting line.
-    canvas.querySelectorAll(".net-name").forEach((elm) => {
-      elm.addEventListener("mouseenter", () => {
-        const net = elm.dataset.net;
-        canvas.querySelectorAll(`.net-name[data-net="${cssEscape(net)}"]`).forEach((m) => m.classList.add("highlight"));
-      });
-      elm.addEventListener("mouseleave", () => {
-        const net = elm.dataset.net;
-        canvas.querySelectorAll(`.net-name[data-net="${cssEscape(net)}"]`).forEach((m) => m.classList.remove("highlight"));
-      });
-    });
+    schematic.render([
+      { id: "top", el: makeTopBox() },
+      ...state.instances.map((inst) => ({ id: `inst:${inst.instanceName}`, el: makeInstanceBox(inst) })),
+    ]);
+    el.schematicLegend.textContent =
+      state.instances.length === 0
+        ? "This module doesn't instantiate any submodules - it's a single block."
+        : "Drag a box by its title bar to rearrange. Hover a port to highlight everything on the same net.";
   }
 
-  function cssEscape(value) {
-    return window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/["\\]/g, "\\$&");
+  function makeBox(title, subtitle, isTop) {
+    const box = makeDiv(`schematic-box${isTop ? " top" : ""}`);
+    const titleBar = makeDiv("box-title", title);
+    titleBar.appendChild(makeSpan("box-subtitle", subtitle));
+    box.appendChild(titleBar);
+    return box;
   }
 
-  function makeSchematicBox(id, title, subtitle, ports, isTop) {
-    const box = document.createElement("div");
-    box.className = "schematic-box" + (isTop ? " top" : "");
-    box.dataset.boxId = id;
-
-    const titleEl = document.createElement("div");
-    titleEl.className = "box-title";
-    titleEl.textContent = title + " ";
-    const sub = document.createElement("span");
-    sub.className = "box-subtitle";
-    sub.textContent = subtitle;
-    titleEl.appendChild(sub);
-    box.appendChild(titleEl);
-
-    for (const port of ports) {
-      const row = document.createElement("div");
-      row.className = "schematic-port-row";
-
-      const left = document.createElement("span");
-      if (port.direction === "input" || port.direction === "output") {
-        const dir = document.createElement("span");
-        dir.className = `dir ${port.direction}`;
-        dir.textContent = port.direction;
-        left.appendChild(dir);
-      }
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "port-name";
-      nameSpan.textContent = port.name;
-      left.appendChild(nameSpan);
-      row.appendChild(left);
-
-      // Top-level ports are the net itself (their own name); instance
-      // ports show what net they're wired to.
-      const netLabel = document.createElement("span");
-      netLabel.className = "net-name";
-      const netName = isTop ? port.name : port.netName || "(unconnected)";
-      netLabel.textContent = netName;
-      netLabel.dataset.net = netName;
-      row.appendChild(netLabel);
-
+  /** The module itself: each port is its own net, driven from outside if it's an input. */
+  function makeTopBox() {
+    const box = makeBox(state.module.name, "top-level module", true);
+    for (const port of state.module.ports) {
+      const row = makeDiv("schematic-port-row");
+      row.dataset.net = port.name;
+      if (port.direction === "input") row.dataset.driver = "";
+      const left = makeSpan("port", "");
+      left.append(makeBadge(port.direction), makeSpan("port-name", port.name));
+      row.append(left, makeSpan("port-detail", rangeOf(port).trim()));
       box.appendChild(row);
     }
+    return box;
+  }
 
-    makeDraggable(box, titleEl, boxPositions, id);
+  /** A submodule instance: each port shows what it is wired to. */
+  function makeInstanceBox(inst) {
+    const box = makeBox(inst.instanceName, inst.moduleType, false);
+    for (const port of inst.ports) {
+      const row = makeDiv("schematic-port-row");
+      row.dataset.net = netOf(port.net);
+      if (port.direction === "output") row.dataset.driver = "";
+      const left = makeSpan("port", "");
+      if (port.direction) left.appendChild(makeBadge(port.direction));
+      left.appendChild(makeSpan("port-name", port.name));
+      row.append(left, makeSpan(port.net ? "net-name" : "port-detail", port.net || "unconnected"));
+      box.appendChild(row);
+    }
     return box;
   }
 

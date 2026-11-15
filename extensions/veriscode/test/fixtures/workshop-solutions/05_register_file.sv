@@ -9,7 +9,7 @@ module register_file (
   output logic [7:0] rdata1,
   output logic [7:0] rdata2
 );
-  logic [7:0] regs [0:3];
+  logic [7:0] regs[4];
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
