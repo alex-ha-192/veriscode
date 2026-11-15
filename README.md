@@ -134,8 +134,9 @@ docs/toolchain-notes.md   how the bundling works and what has been verified
   compiles, runs the tests against real `iverilog` and Verible on amd64
   and arm64 Linux, and packages a toolchain-free `.vsix`.
 - [`build-universal-vsix.yml`](.github/workflows/build-universal-vsix.yml),
-  manually or on a `v*` tag: fetches the toolchains for every platform and
-  packages the bundled release `.vsix`.
+  manually or on a `v*` tag: fetches the toolchains for every platform,
+  runs the tests on each platform using only those bundled binaries, and
+  then packages the release `.vsix`.
 
 ## License
 

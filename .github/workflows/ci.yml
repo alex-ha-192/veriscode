@@ -5,6 +5,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer push to the same branch (or pull request) makes an in-flight run
+# pointless, so it is cancelled rather than left to finish.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-extensions:
     name: Compile & test (${{ matrix.arch }})
@@ -19,11 +25,12 @@ jobs:
             runs-on: ubuntu-24.04-arm
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: npm
 
       - name: Install Icarus Verilog
         run: sudo apt-get update && sudo apt-get install -y iverilog
@@ -51,7 +58,7 @@ jobs:
           mkdir -p dist
           (cd extensions/veriscode && npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository -o ../../dist/)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: veriscode-extension-${{ matrix.arch }}
           path: dist/*.vsix

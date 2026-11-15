@@ -75,11 +75,9 @@ run(async () => {
   const syntaxErrors = await lintText("module m(input a; endmodule\n", "m.sv");
   check("lint: syntax errors are reported", syntaxErrors.length > 0 && syntaxErrors.every((f) => f.isSyntaxError));
 
-  check(
-    "format: tidies the buffer",
-    await formatText(format, "module tidy(input logic a,output logic y);assign y=a;endmodule\n", "tidy.sv"),
-    clean
-  );
+  const formatted = await formatText(format, "module tidy(input logic a,output logic y);assign y=a;endmodule\n", "tidy.sv");
+  // (Line endings aside: VS Code applies an edit using the document's own.)
+  check("format: tidies the buffer", formatted?.replace(/\r\n/g, "\n"), clean);
   check(
     "format: a file with a syntax error is left alone (no error text as 'formatted' output)",
     await formatText(format, "module m(input a; endmodule\n", "m.sv"),

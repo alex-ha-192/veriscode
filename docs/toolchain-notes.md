@@ -32,6 +32,19 @@ install doesn't work by itself (steveicarus/iverilog#1344).
 **Verible** ships static binaries, so it needs no such handling. The
 pinned release is in `toolchains/manifest.json`.
 
+**Permissions.** The release workflow passes the staged binaries between
+jobs as artifacts, which do not keep file permissions. Everything under
+`bin/` is therefore marked executable again before testing and packaging
+- including Icarus's `lib/`, which holds the preprocessor and compiler
+(`ivlpp`, `ivl`) that `iverilog` itself launches. Restoring only the
+top-level binaries leaves a bundle whose `iverilog` fails with
+"Permission denied".
+
+**The bundle is tested before it is packaged.** For each platform the
+release workflow starts a clean runner with nothing but the staged
+binaries and runs `node test/run.js --bundled`, which refuses to start
+unless every tool resolves into `bin/`.
+
 ## Verified against the real tools
 
 - **Simulation**, end to end with a real `iverilog`/`vvp`: module-header
@@ -75,13 +88,38 @@ A full compile-and-simulate of the workshop's largest design (the CPU,
 `test/perf.test.js` asserts a deliberately generous 500 ms ceiling, to
 catch a gross regression without flaking on shared CI runners.
 
-Process spawn dominates that time, so in-process micro-optimizations
-don't pay at this scale. Two things are still worth keeping:
+Where the 15 ms goes, measured: `iverilog` about 9 ms (it is three
+processes: the driver, the preprocessor and the compiler), `vvp` about
+5.5 ms, and everything in-process - generating the testbench, parsing the
+VCD - about 0.1 ms. A bare process spawn costs ~2 ms here, so most of the
+time is the tools starting up, not working.
 
-- Cell edits are debounced by 150 ms (`SET_VALUE_DEBOUNCE_MS` in
-  `panel.ts`), so a burst of edits is one run, not one per keystroke.
-- VCD changes are grouped by signal once per run (`groupChangesById`),
+What follows from that:
+
+- **Nothing waits before a run.** A cell edit simulates immediately. A
+  request that arrives while a run is in flight is folded into one
+  follow-up run (`runSimulation` in `panel.ts`), so there is one
+  `iverilog` at a time and the diagram never shows a stale result. An
+  earlier version debounced edits by 150 ms, which made every edit feel
+  ten times slower than the simulation actually is.
+- **Only the ports are dumped** (`$dumpvars(1, ...)`), which halves the
+  VCD. More importantly it is what makes the diagram correct: with the
+  whole hierarchy dumped, a submodule signal named like a top-level port
+  was mistaken for that port.
+- **VCD changes are grouped by signal once per run** (`groupChangesById`),
   so sampling each port is a lookup rather than a scan of every change.
+- **The compiled design is not cached between runs.** Skipping `iverilog`
+  when only input values change would save its ~9 ms, but the values are
+  SystemVerilog literals compiled into the testbench; taking them out
+  would mean parsing literals ourselves and keeping two code paths in
+  step, for a difference nobody can perceive. In-process
+  micro-optimizations are similarly not worth their complexity here.
+
+Outside the simulator, the same "don't repeat work" rule applies: a file
+isn't linted twice for the same text (a save right after typing used to
+spawn Verible again), the sidebar does nothing while hidden or when the
+module summary is unchanged, and dragging a schematic box redraws the
+wires once per frame rather than once per mouse event.
 
 ## Lessons from the first real CI runs
 

@@ -7,7 +7,8 @@
 const path = require("path");
 const { SOLUTIONS, check, simulateFile, run } = require("./helpers");
 
-const THRESHOLD_MS = 500;
+// Starting a process is several times slower on Windows.
+const THRESHOLD_MS = process.platform === "win32" ? 2000 : 500;
 const RUNS = 6;
 
 run(async () => {

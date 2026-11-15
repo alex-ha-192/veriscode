@@ -1,0 +1,3 @@
+# Keep text files LF on every platform: the shell scripts and the
+# SystemVerilog test fixtures are used as-is on Windows runners too.
+* text=auto eol=lf

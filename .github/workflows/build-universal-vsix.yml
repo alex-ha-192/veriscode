@@ -26,13 +26,13 @@ jobs:
     # no matrix needed either.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Fetch Verible for every platform
         run: |
           for target in linux-x64 linux-arm64 win32-x64 darwin-x64 darwin-arm64; do
             toolchains/fetch-verible.sh "$target"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: verible-bins
           path: extensions/veriscode/bin/
@@ -40,9 +40,9 @@ jobs:
   icarus-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: toolchains/fetch-icarus-linux.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: icarus-linux-x64
           path: extensions/veriscode/bin/linux-x64/
@@ -54,9 +54,9 @@ jobs:
     # this is the exact same script as the x64 job above.
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: toolchains/fetch-icarus-linux.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: icarus-linux-arm64
           path: extensions/veriscode/bin/linux-arm64/
@@ -64,39 +64,44 @@ jobs:
   icarus-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: |
           if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
             choco install jq -y --no-progress
           }
         shell: pwsh
       - run: pwsh -NoProfile -File toolchains/fetch-icarus-windows.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: icarus-win32-x64
           path: extensions/veriscode/bin/win32-x64/
 
   icarus-macos-x64:
-    runs-on: macos-13 # Intel runner
+    runs-on: macos-15-intel # Intel runner
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: toolchains/fetch-icarus-macos.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: icarus-darwin-x64
           path: extensions/veriscode/bin/darwin-x64/
 
   icarus-macos-arm64:
-    runs-on: macos-14 # Apple Silicon runner
+    runs-on: macos-15 # Apple Silicon runner
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: toolchains/fetch-icarus-macos.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: icarus-darwin-arm64
           path: extensions/veriscode/bin/darwin-arm64/
 
-  package:
+  test-bundle:
+    # The point of the release build is that it works with nothing else
+    # installed, so prove that before packaging: on a clean runner for each
+    # platform, with only the staged binaries (no apt/brew/choco Icarus, no
+    # Verible on PATH), run the whole test suite.
+    name: Test bundled toolchain (${{ matrix.target }})
     needs:
       [
         verible,
@@ -106,48 +111,89 @@ jobs:
         icarus-macos-x64,
         icarus-macos-arm64,
       ]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runs-on: ubuntu-latest
+          - target: linux-arm64
+            runs-on: ubuntu-24.04-arm
+          - target: win32-x64
+            runs-on: windows-latest
+          - target: darwin-x64
+            runs-on: macos-15-intel
+          - target: darwin-arm64
+            runs-on: macos-15
+    runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
-
-      # Verible's per-platform binaries and Icarus's live in the same
-      # extensions/veriscode/bin/<platform-arch>/ directories (Verible's
-      # go straight in each dir, Icarus's need one more /lib level) - all
-      # six downloads below merge into that one tree without conflicting,
-      # since none of them share a filename.
-      - uses: actions/download-artifact@v4
+          cache: npm
+      - uses: actions/download-artifact@v7
         with:
           name: verible-bins
           path: extensions/veriscode/bin/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
+        with:
+          name: icarus-${{ matrix.target }}
+          path: extensions/veriscode/bin/${{ matrix.target }}/
+      # Artifacts don't keep file permissions. Everything under bin/ is a
+      # program or a module one of them loads (Icarus's lib/ holds the
+      # compiler passes iverilog runs), so mark it all executable.
+      - name: Restore executable bits
+        if: runner.os != 'Windows'
+        run: chmod -R a+x extensions/veriscode/bin/${{ matrix.target }}
+      - run: npm ci
+      - run: npm run compile
+      - name: Test, using only the bundled toolchain
+        run: node extensions/veriscode/test/run.js --bundled
+
+  package:
+    needs: test-bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      # Verible's per-platform binaries and Icarus's live in the same
+      # extensions/veriscode/bin/<platform-arch>/ directories (Verible's
+      # go straight in each dir, Icarus's support files one level down in
+      # lib/), so the downloads below merge into one tree without clashing.
+      - uses: actions/download-artifact@v7
+        with:
+          name: verible-bins
+          path: extensions/veriscode/bin/
+      - uses: actions/download-artifact@v7
         with:
           name: icarus-linux-x64
           path: extensions/veriscode/bin/linux-x64/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: icarus-linux-arm64
           path: extensions/veriscode/bin/linux-arm64/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: icarus-win32-x64
           path: extensions/veriscode/bin/win32-x64/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: icarus-darwin-x64
           path: extensions/veriscode/bin/darwin-x64/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: icarus-darwin-arm64
           path: extensions/veriscode/bin/darwin-arm64/
 
+      # See the note in test-bundle: artifacts drop permissions, and the
+      # .vsix records whatever is on disk here.
       - name: Restore executable bits
-        run: |
-          chmod +x extensions/veriscode/bin/*/verible-* || true
-          chmod +x extensions/veriscode/bin/linux-*/{iverilog,vvp,iverilog-vpi} || true
-          chmod +x extensions/veriscode/bin/darwin-*/{iverilog,vvp,iverilog-vpi} || true
+        run: chmod -R a+x extensions/veriscode/bin
 
       - name: Install & compile
         run: |
@@ -159,7 +205,7 @@ jobs:
           mkdir -p dist
           (cd extensions/veriscode && npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository -o ../../dist/)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: veriscode-portable-vsix
           path: dist/*.vsix
