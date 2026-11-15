@@ -19,7 +19,7 @@ module register_file (
 );
 
   // Four 8-bit registers, indexed like an array: regs[0], regs[1], ...
-  logic [7:0] regs [0:3];
+  logic [7:0] regs[4];
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

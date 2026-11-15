@@ -10,15 +10,8 @@
   "engines": {
     "vscode": "^1.90.0"
   },
-  "categories": ["Programming Languages", "Linters", "Formatters", "Debuggers", "Education"],
-  "activationEvents": [
-    "onLanguage:systemverilog",
-    "onLanguage:verilog",
-    "onCommand:veriscode.newProject",
-    "onCommand:veriscode.composeTop",
-    "onCommand:veriscode.simulate",
-    "onView:veriscode.home"
-  ],
+  "categories": ["Programming Languages", "Linters", "Formatters", "Visualization", "Education"],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
@@ -126,28 +119,28 @@
           "veriscode.verible.lintOnSave": {
             "type": "boolean",
             "default": true,
-            "description": "Run verible-verilog-lint whenever a SystemVerilog file is saved."
+            "description": "Lint a SystemVerilog file with Verible whenever it is saved."
           },
           "veriscode.verible.lintOnType": {
             "type": "boolean",
             "default": true,
-            "description": "Run verible-verilog-lint (debounced) as you type."
+            "description": "Lint with Verible as you type (after a short pause)."
           },
           "veriscode.verible.formatOnSave": {
             "type": "boolean",
             "default": false,
-            "description": "Run verible-verilog-format on save."
+            "description": "Format a SystemVerilog file with Verible whenever it is saved. A file with a syntax error is left untouched."
           },
           "veriscode.verible.path": {
             "type": "string",
             "default": "",
-            "description": "Override path to the verible-verilog-lint binary. Leave blank to use the bundled copy."
+            "markdownDescription": "Path to a `verible-verilog-lint` binary to use instead of the bundled one. The formatter (`verible-verilog-format`) is taken from the same folder. Leave blank to use the bundled copy."
           },
           "veriscode.verible.disabledRules": {
             "type": "array",
             "items": { "type": "string" },
-            "default": [],
-            "description": "Verible lint rules to disable, e.g. \"line-length\"."
+            "default": ["module-filename", "parameter-name-style"],
+            "markdownDescription": "Verible lint rules to turn off, e.g. `line-length`. Two are off by default because the bundled workshop would trip them: `module-filename` (its files are numbered, like `01_half_adder.sv`) and `parameter-name-style` (it names constants in `ALL_CAPS`, like `OP_ADD`). Set this to `[]` to turn every rule back on."
           }
         }
       },
@@ -157,16 +150,17 @@
           "veriscode.simulator.icarusPath": {
             "type": "string",
             "default": "",
-            "description": "Override path to the iverilog binary. Leave blank to use the bundled copy."
+            "markdownDescription": "Path to an `iverilog` binary to use instead of the bundled one. Leave blank to use the bundled copy."
           },
           "veriscode.simulator.vvpPath": {
             "type": "string",
             "default": "",
-            "description": "Override path to the vvp binary. Leave blank to use the bundled copy."
+            "markdownDescription": "Path to a `vvp` binary to use instead of the bundled one. Leave blank to use the bundled copy."
           },
           "veriscode.simulator.defaultCycles": {
-            "type": "number",
+            "type": "integer",
             "default": 8,
+            "minimum": 1,
             "description": "Number of clock cycles (or steps, for combinational designs) shown when a simulation first opens."
           }
         }
@@ -176,9 +170,9 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -w -p ./",
+    "test": "node test/run.js",
     "package": "npx @vscode/vsce package --no-dependencies -o ../../dist/"
   },
-  "dependencies": {},
   "devDependencies": {
     "@types/node": "^20.14.9",
     "@types/vscode": "^1.90.0",

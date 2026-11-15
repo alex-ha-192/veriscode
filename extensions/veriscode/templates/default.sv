@@ -5,7 +5,7 @@
 // interactive timing diagram: click any input cell to try out values for
 // "en" and "rst_n" at each clock cycle, and watch "count" react live.
 module counter #(
-  parameter WIDTH = 8
+  parameter int WIDTH = 8
 ) (
   input  logic             clk,
   input  logic             rst_n,
