@@ -1,143 +1,141 @@
 # Veriscode
 
-Veriscode is one VS Code extension that adds Verible (linting +
-formatting) and an interactive, cycle-by-cycle SystemVerilog simulator
-(Icarus Verilog running invisibly underneath) - no separate tool
-installs, no command line.
+A VS Code extension for learning SystemVerilog. It lints and formats your
+code with [Verible](https://github.com/chipsalliance/verible), and lets you
+simulate any module by clicking values into a timing diagram -
+[Icarus Verilog](https://github.com/steveicarus/iverilog) runs underneath,
+out of sight. No separate tools to install, no command line, no testbench
+to write.
 
-The workflow it's built for:
+![The simulator's timing diagram: a small CPU stepping through a program](docs/images/timing-diagram.png)
 
-1. **File → New File... → SystemVerilog Project**, or the same command
-   from the Veriscode icon in the Activity Bar - creates a folder with a
-   starter `.sv` file, the same way you'd create any new file.
-2. Write SystemVerilog. Verible lints it as you type. The Veriscode
-   sidebar panel (its own Activity Bar icon, PlatformIO-style) shows the
-   active file's module and port list live as you edit.
-3. Click **▶ Simulate** above the module (or from the sidebar). An
-   interactive timing diagram opens: click any input cell to type a value
-   for that signal at that clock cycle (`1`, `0`, `x`, `4'hA`, ...), add
-   more cycles, and watch the outputs update automatically as Icarus
-   Verilog re-runs in the background. A second **Logical Schematic** tab
-   in the same panel shows the module's structure - any submodules it
-   instantiates, as draggable boxes with net names you can hover to trace
-   a connection - built from parsing the source, not a live simulation.
-4. Once you've built a few small modules (e.g. working through the
-   built-in **CPU workshop** template, picked from the same New Project
-   flow - a half adder up through a tiny single-cycle CPU, meant for a
-   1-2 hour no-prior-HDL-experience session), wire them into a top-level
-   module without hand-writing instantiation syntax: **Veriscode: Build
-   Top Module (GUI)** (from the Command Palette, the sidebar, or
-   right-click a folder in the Explorer) opens a drag-and-drop canvas -
-   pick modules from a palette, type matching net names into each port to
-   connect them, declare the top module's own ports, and Generate writes
-   out real, readable SystemVerilog and opens it.
+## What it does
 
-The sidebar (`extensions/veriscode/src/webview/sidebarView.ts`) is
-deliberately a compact launcher/status panel, not the diagram itself - a
-wide per-cycle grid doesn't fit usefully in a narrow sidebar, so the
-actual simulation still opens as its own editor-area tab, the way
-PlatformIO's sidebar is a task list in front of its full-tab PIO Home
-rather than trying to cram everything into the sidebar.
+- **Click-to-simulate.** **▶ Simulate** appears above every module. It
+  opens a timing diagram with one column per clock cycle (or per time
+  step, for a design with no clock): click an input cell, type a value
+  (`0`, `1`, `x`, `4'hA`, `3'b101`...), and the outputs update. Add
+  columns as you go. Save the file and the diagram re-runs with the values
+  you already entered.
+- **A schematic view.** The simulator's second tab draws the module, the
+  modules it instantiates and the wires between them. Hover a port to
+  highlight its net.
+- **Linting and formatting.** Verible checks the file as you type and
+  backs **Format Document**.
+- **Project templates.** **File → New File... → SystemVerilog Project**
+  creates a ready-to-simulate project: a counter, a half or full adder, or
+  the **CPU workshop** - six guided stages from a half adder to a working
+  8-bit CPU, sized for a 1-2 hour session with no prior HDL experience.
+- **A top-module builder.** **Veriscode: Build Top Module (GUI)** wires
+  modules you've already written into a new top-level module: pick them
+  from a palette, name the nets, and it writes the instantiation code.
+- **A sidebar.** The Veriscode icon in the Activity Bar has the actions
+  above, plus the active file's module and ports.
+
+| Logical Schematic | Build Top Module |
+| --- | --- |
+| ![The Logical Schematic tab: a full adder built from two half adders](docs/images/logical-schematic.png) | ![The top-module builder wiring two half adders together](docs/images/build-top-module.png) |
 
 ## Install
 
-One `.vsix` - install into any VS Code, VSCodium, Cursor, etc., on
-Windows, macOS, or Linux, on either amd64 or arm64, via **Install from
-VSIX...** in the Extensions view.
+Veriscode is a single `.vsix` that works in VS Code, VSCodium, Cursor and
+other VS Code-based editors: **Extensions view → `...` → Install from
+VSIX...**
 
-**The bundled, self-contained build** (recommended) packages Verible +
-Icarus Verilog for **Windows (x64), macOS (Intel + Apple Silicon), and
-Linux (x64 + arm64)** all into that same `.vsix` - `resolveBinary()` in
-`toolchain.ts` picks the right one for whatever OS/arch it's actually
-running on at runtime, so the end user never installs or even sees
-Verible/Icarus directly. Windows-on-ARM has no native Verible/Icarus
-build to bundle, so it deliberately falls back to the x64 build there
-instead, which runs transparently under Windows 11's built-in x64
-emulation (Prism) - the same trick Apple Silicon's Rosetta 2 provides
-(macOS still gets a real native arm64 build, since a hosted Apple Silicon
-CI runner is available; Windows-on-ARM CI is available too, but building
-a native Icarus for it isn't, since neither Chocolatey nor Verible ship
-one). `resolveBundledPlatformDir()`'s fallback is arch-aware: it will
-*not* silently substitute an x64 build on Linux arm64, since Linux has no
-equivalent transparent emulation layer - see
-`test/toolchain-fallback.js`.
+The release build bundles Verible and Icarus Verilog for Windows (x64),
+macOS (Intel and Apple Silicon) and Linux (x64 and arm64) in that one
+file, and picks the right binaries at run time. Windows on ARM uses the
+x64 binaries through Windows' built-in emulation.
 
-`.github/workflows/build-universal-vsix.yml` builds this: a matrix job
-stages Verible (one job - it ships prebuilt static binaries for every
-platform already, including linux-arm64) and Icarus Verilog (one job per
-OS/arch that needs a real install: linux-x64, linux-arm64 on GitHub's
-free hosted arm64 runner, win32-x64, darwin-x64, darwin-arm64) into the
-*same* `extensions/veriscode/bin/<platform-arch>/` directories, then a
-final job merges all of it into one checkout and packages the single
-`.vsix` once. Trigger it manually (`workflow_dispatch`) or by pushing a
-`v*` tag; the built file shows up as a workflow artifact.
+To get it, run the **Build portable multi-platform .vsix** workflow
+(manually, or by pushing a `v*` tag) and download its artifact.
 
-This bundling mechanism - and specifically the trickiest part of it,
-relocating Icarus Verilog's binaries (which bake in absolute paths to
-their own support directory, via `-B` at compile time and
-`IVERILOG_VPI_MODULE_PATH` at run time; see `icarusRunner.ts`) - was
-**verified for real** in this repo's dev sandbox: `iverilog`/`vvp` were
-copied out of their normal `/usr/bin` install into the extension's
-`bin/linux-x64/` layout, the system copies were then deleted entirely,
-and the simulation engine's test suite still passed correctly using only
-the relocated copy (this sandbox is amd64, so only that arch's real
-toolchain could be exercised locally; `.github/workflows/ci.yml` runs the
-same real-iverilog test suite on both amd64 and arm64 hosted runners on
-every push). The Windows/macOS legs use the identical relocation
-mechanism but couldn't be exercised the same way in this sandbox (no
-Windows/macOS runner, no Chocolatey/Homebrew network access there) - see
-`docs/toolchain-notes.md`.
+## Settings
 
-### Try it now, without waiting on CI
+| Setting | Default | |
+| --- | --- | --- |
+| `veriscode.verible.lintOnType` | `true` | Lint as you type. |
+| `veriscode.verible.lintOnSave` | `true` | Lint on save. |
+| `veriscode.verible.formatOnSave` | `false` | Format on save. A file with a syntax error is left untouched. |
+| `veriscode.verible.disabledRules` | `["module-filename", "parameter-name-style"]` | Lint rules to turn off. These two would flag the bundled workshop (numbered file names, `ALL_CAPS` constants); set `[]` to enable everything. |
+| `veriscode.verible.path` | bundled | A `verible-verilog-lint` to use instead. The formatter is taken from the same folder. |
+| `veriscode.simulator.icarusPath`, `vvpPath` | bundled | An `iverilog` / `vvp` to use instead. |
+| `veriscode.simulator.defaultCycles` | `8` | Columns shown when a simulation opens. |
+
+## What to expect
+
+Veriscode is a teaching tool, and it trades generality for a simple model:
+
+- **A project is a folder.** Every `.sv`/`.v` file next to the one you
+  simulate is compiled with it, so a module can instantiate any module in
+  the same folder. There are no include paths or file lists to manage.
+- **Simulation is a fresh run every time.** Each edit regenerates a small
+  testbench from the whole grid, recompiles and reruns. That takes about
+  15 ms for the workshop's CPU, and there is no simulator state to get out
+  of sync with what the diagram shows.
+- **The module header is read by a small parser, not a full SystemVerilog
+  front end.** It understands ANSI-style headers
+  (`module m #(...) (input logic [7:0] a, ...);`) and widths built from
+  literals and parameter defaults. Icarus Verilog is still what compiles
+  your code, so anything it accepts will simulate.
+- A port named `clk`/`clock` is treated as the clock, and a reset-like
+  name (`rst_n`, `reset`, ...) gets a one-cycle reset pulse by default.
+  Both are only starting values; every cell stays editable.
+
+## Development
 
 ```bash
 npm install
 npm run compile
+npm test          # needs iverilog on PATH; see below
+```
+
+`npm test` runs every `extensions/veriscode/test/*.test.js` against the
+compiled extension and a real `iverilog`. The Verible tests use the real
+binaries too, if they are bundled or on `PATH`, and are reported as skipped
+otherwise - `toolchains/fetch-verible.sh linux-x64` (or your platform)
+fetches the pinned release into place.
+
+To try a build in your editor:
+
+```bash
 cd extensions/veriscode && npx @vscode/vsce package --no-dependencies -o ../../dist/
 ```
 
-Then in VS Code: Extensions view → `...` menu → **Install from VSIX...**,
-pick the file from `dist/`. Without the CI-built bundled `.vsix`, you'll
-also need `iverilog`/`vvp` on your PATH yourself (`apt install iverilog`,
-`brew install icarus-verilog`, or the [Windows
-installer](https://bleyer.org/icarus/)) and, optionally,
-[Verible](https://github.com/chipsalliance/verible/releases) for linting -
-this is the fastest loop for local extension development.
+then install the `.vsix` from `dist/`. A build made this way has no
+toolchain inside, so it uses the `iverilog`/`vvp` on your `PATH`
+(`apt install iverilog`, `brew install icarus-verilog`, or the
+[Windows installer](https://bleyer.org/icarus/)) and, for linting, a
+[Verible release](https://github.com/chipsalliance/verible/releases).
 
-## Architecture
+### Layout
 
 ```
-veriscode/
-  extensions/veriscode/   # the extension: language + lint + simulator + sidebar
-  toolchains/             # fetches Verible/Icarus for bundling
-  .github/workflows/      # CI: extension tests + universal vsix build
-  docs/toolchain-notes.md # what's been validated vs. not, and why
+extensions/veriscode/
+  src/
+    extension.ts          activation: commands, CodeLens, Verible wiring
+    verible.ts            running Verible and parsing its output (no vscode import)
+    veribleLint.ts        diagnostics and formatting on top of it
+    toolchain.ts          finding bundled or PATH binaries
+    newProject.ts         New Project command; projectScaffold.ts writes the files
+    simulation/           module-header parser, testbench generator, Icarus runner, VCD parser
+    generation/           the top-module builder's code generator
+    webview/              extension-host side of the three views
+  media/                  browser side of the views (plain JS and CSS, no build step)
+  templates/              project templates, including the CPU workshop and its guide
+  test/                   *.test.js, run by `npm test`
+toolchains/               scripts that fetch Verible / Icarus Verilog for bundling
+docs/toolchain-notes.md   how the bundling works and what has been verified
 ```
 
-### How simulation actually works
+### CI
 
-There's no live cosimulation/FIFO trickery - deliberately, for
-portability and simplicity. Every time you edit a signal's value for a
-cycle, the simulator panel (`extensions/veriscode/src/webview/`)
-regenerates a small testbench that drives *all* cycles up to that point
-with the values you've entered so far
-(`src/simulation/testbenchGenerator.ts`), recompiles and reruns the whole
-thing with `iverilog`/`vvp` (`src/simulation/icarusRunner.ts`), parses the
-resulting VCD (`src/simulation/vcdParser.ts`), and re-renders the
-diagram. It's a full recompile per edit rather than a stateful
-simulation, which is slower than "real" interactive simulation but
-trivially correct, cross-platform, and fast enough for the tiny designs
-this is meant for.
-
-## CI
-
-- **`.github/workflows/ci.yml`** runs on every push/PR: compiles the
-  extension, runs the simulation engine's smoke tests against a real
-  `iverilog`, and packages a (non-bundled) `.vsix` as a build artifact.
-  Fast, cheap, always on.
-- **`.github/workflows/build-universal-vsix.yml`**: the release build -
-  assembles the portable, all-platforms-bundled `.vsix` described above.
-  Manual (`workflow_dispatch`) or on a `v*` tag.
+- [`ci.yml`](.github/workflows/ci.yml), on every push and pull request:
+  compiles, runs the tests against real `iverilog` and Verible on amd64
+  and arm64 Linux, and packages a toolchain-free `.vsix`.
+- [`build-universal-vsix.yml`](.github/workflows/build-universal-vsix.yml),
+  manually or on a `v*` tag: fetches the toolchains for every platform and
+  packages the bundled release `.vsix`.
 
 ## License
 

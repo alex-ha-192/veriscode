@@ -11,18 +11,24 @@ No previous hardware design experience needed. Budget **1-2 hours**.
 Every file below is a `module` you can simulate on its own - open it,
 click **▶ Simulate** above the module (or the same button in the
 Veriscode sidebar), and an interactive timing diagram opens beside your
-code. Click any blue **input** cell to type a value; **output** cells
-update automatically. Add more cycles with **+ Cycle**.
+code. Click any blue **input** cell to type a value; the green **output**
+rows update automatically. Add more columns with **+ Step** (or
+**+ Cycle**, once your designs have a clock).
 
 Each file has one or two spots marked `// TODO` - that's the only code
 you need to write. Everything compiles and simulates *before* you touch
 the TODOs too, so you'll always see *something* happen when you click
-Simulate - just not the right thing yet. Fix the TODO, click **Re-run**,
-and check the diagram again.
+Simulate - just not the right thing yet. Fix the TODO, **save the file**,
+and the diagram re-runs by itself with the values you already entered.
 
-Verible (the linter built into Veriscode) will also underline anything
-that doesn't parse - if a TODO turns red, that's a hint your edit isn't
-valid SystemVerilog yet, not that the concept is wrong.
+Verible (the linter built into Veriscode) underlines anything that
+doesn't parse - if a TODO turns red, that's a hint your edit isn't valid
+SystemVerilog yet, not that the concept is wrong. And if a simulation
+fails, the compiler's message appears right above the diagram.
+
+The simulator's second tab, **Logical Schematic**, draws the module as a
+box - and, from stage 2 on, the modules inside it and the wires between
+them.
 
 ## The stages
 
@@ -64,6 +70,9 @@ counts down from a starting value to zero using `SUB` and `JZ`.
 - Stages 1-3 are pure combinational logic (no clock) - the diagram shows
   one column per time step. Stages 4-6 are clocked - one column per clock
   cycle, and a reset pulse is pre-loaded in cycle 0 automatically.
+- A red **x** in the diagram means "unknown" - usually an output that
+  nothing drives yet, or a register that was never reset. It's the
+  simulator being honest, not a crash, and it makes a good talking point.
 - If someone finishes early, the natural extension is: add a new opcode
   to the CPU (e.g. `INC` - increment acc without touching memory), or a
   third read port to the register file.
