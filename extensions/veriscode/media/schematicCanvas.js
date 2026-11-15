@@ -65,6 +65,19 @@
       refresh();
     }
 
+    // Dragging and window resizing fire far more often than the screen
+    // repaints; re-measuring every box and rebuilding every wire each time
+    // would be wasted, so those are coalesced to one refresh per frame.
+    let refreshQueued = false;
+    function refreshNextFrame() {
+      if (refreshQueued) return;
+      refreshQueued = true;
+      requestAnimationFrame(() => {
+        refreshQueued = false;
+        refresh();
+      });
+    }
+
     /** Re-fits the canvas to its boxes and redraws every wire. Call after a net name changes. */
     function refresh() {
       const boxes = [...canvasEl.querySelectorAll(".schematic-box")];
@@ -153,13 +166,13 @@
       drag.pos.x = Math.max(0, e.clientX - drag.offsetX);
       drag.pos.y = Math.max(0, e.clientY - drag.offsetY);
       place(drag.box);
-      refresh();
+      refreshNextFrame();
     });
     window.addEventListener("mouseup", () => {
       drag?.box.classList.remove("dragging");
       drag = null;
     });
-    window.addEventListener("resize", refresh);
+    window.addEventListener("resize", refreshNextFrame);
 
     // Hovering a port highlights its whole net: every port on it, and the wires between them.
     function highlightNet(net, on) {

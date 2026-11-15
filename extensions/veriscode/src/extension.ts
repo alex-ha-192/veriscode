@@ -64,6 +64,14 @@ function registerVerible(context: vscode.ExtensionContext): vscode.Disposable[] 
       }
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => linter.clear(doc.uri)),
+    // A changed rule list or binary applies straight away, not at the next edit.
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("veriscode.verible")) {
+        for (const doc of vscode.workspace.textDocuments) {
+          void linter.lint(doc);
+        }
+      }
+    }),
 
     vscode.languages.registerDocumentFormattingEditProvider(SV_SELECTOR, {
       async provideDocumentFormattingEdits(document) {

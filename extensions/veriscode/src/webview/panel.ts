@@ -43,10 +43,6 @@ type ToWebview =
   | { type: "result"; result: SimulationResult };
 
 const CLOCK_PERIOD_NS = 10;
-// Collapses a burst of cell edits into one simulate() call. A run only
-// takes ~15ms (see docs/toolchain-notes.md), so this isn't about slow
-// runs: it avoids spawning iverilog+vvp for results about to be replaced.
-const SET_VALUE_DEBOUNCE_MS = 150;
 
 /**
  * The interactive simulator for one file: a timing diagram whose input
@@ -58,11 +54,9 @@ export class SimulatorPanel extends DisposableWebviewPanel<ToWebview> {
   private static readonly panels = new Map<string, SimulatorPanel>();
 
   private steps: SimStep[];
-  // Monotonic token so that if edits queue several simulations, a slow
-  // earlier run can't overwrite the result of a newer one that finished
-  // first (each simulate() call is an independent iverilog+vvp process).
-  private simGeneration = 0;
-  private setValueDebounce: ReturnType<typeof setTimeout> | undefined;
+  private simulating = false;
+  /** Set when something changed while a simulation was running, so its result is already out of date. */
+  private rerunNeeded = false;
 
   static async show(
     context: vscode.ExtensionContext,
@@ -119,10 +113,7 @@ export class SimulatorPanel extends DisposableWebviewPanel<ToWebview> {
         this.reparseAndRerun();
       }
     });
-    this.panel.onDidDispose(() => {
-      saveListener.dispose();
-      clearTimeout(this.setValueDebounce);
-    });
+    this.panel.onDidDispose(() => saveListener.dispose());
   }
 
   private clientState(): ClientState {
@@ -168,7 +159,7 @@ export class SimulatorPanel extends DisposableWebviewPanel<ToWebview> {
         const step = this.steps[msg.step];
         if (step) {
           step[msg.signal] = msg.value;
-          this.scheduleSimulation();
+          await this.runSimulation();
         }
         break;
       }
@@ -210,25 +201,35 @@ export class SimulatorPanel extends DisposableWebviewPanel<ToWebview> {
     void this.runSimulation();
   }
 
-  /** Debounced entry point for high-frequency triggers (cell edits). */
-  private scheduleSimulation(): void {
-    clearTimeout(this.setValueDebounce);
-    this.setValueDebounce = setTimeout(() => void this.runSimulation(), SET_VALUE_DEBOUNCE_MS);
-  }
-
+  /**
+   * Simulates the current module and steps and sends the result to the
+   * diagram. It starts at once - a run takes ~15ms, so there is nothing to
+   * gain by waiting - and a call that arrives while a run is in flight is
+   * folded into a single follow-up run. So there is never more than one
+   * iverilog at a time, and never a stale result on screen.
+   */
   private async runSimulation(): Promise<void> {
-    const generation = ++this.simGeneration;
-    this.post({ type: "status", message: "Simulating…", kind: "running" });
-    const config = vscode.workspace.getConfiguration("veriscode.simulator");
-    const result = await simulate(this.module, this.document.uri.fsPath, this.steps, CLOCK_PERIOD_NS, {
-      extensionPath: this.context.extensionPath,
-      iverilogOverride: config.get<string>("icarusPath"),
-      vvpOverride: config.get<string>("vvpPath"),
-    });
-    // Drop this result if a newer simulation was kicked off while we ran -
-    // its result is the one that matches the current steps/module state.
-    if (generation === this.simGeneration) {
-      this.post({ type: "result", result });
+    if (this.simulating) {
+      this.rerunNeeded = true;
+      return;
+    }
+    this.simulating = true;
+    try {
+      do {
+        this.rerunNeeded = false;
+        this.post({ type: "status", message: "Simulating…", kind: "running" });
+        const config = vscode.workspace.getConfiguration("veriscode.simulator");
+        const result = await simulate(this.module, this.document.uri.fsPath, this.steps, CLOCK_PERIOD_NS, {
+          extensionPath: this.context.extensionPath,
+          iverilogOverride: config.get<string>("icarusPath"),
+          vvpOverride: config.get<string>("vvpPath"),
+        });
+        if (!this.rerunNeeded) {
+          this.post({ type: "result", result });
+        }
+      } while (this.rerunNeeded && !this.disposed);
+    } finally {
+      this.simulating = false;
     }
   }
 }

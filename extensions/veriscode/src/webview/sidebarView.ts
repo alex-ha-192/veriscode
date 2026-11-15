@@ -22,6 +22,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = "veriscode.home";
 
   private view: vscode.WebviewView | undefined;
+  /** The summary the webview is currently showing, so an identical one isn't sent again. */
+  private shown: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     context.subscriptions.push(
@@ -44,8 +46,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       body: SIDEBAR_BODY,
     });
 
+    webviewView.onDidChangeVisibility(() => this.pushActiveModule());
     webviewView.webview.onDidReceiveMessage((msg: FromSidebar) => {
       if (msg.type === "ready") {
+        this.shown = undefined; // A freshly loaded page shows nothing yet.
         this.pushActiveModule();
       } else if (BUTTON_COMMANDS.includes(msg.type)) {
         void vscode.commands.executeCommand(`veriscode.${msg.type}`);
@@ -53,19 +57,26 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /**
+   * Sends the active editor's module summary to the view. This runs on
+   * every keystroke in the active document, so it does nothing while the
+   * view is hidden (a hidden view is reloaded, and asks again, when shown)
+   * or when the summary hasn't changed - most edits don't touch the ports.
+   */
   private pushActiveModule(): void {
-    if (!this.view) return;
+    if (!this.view?.visible) return;
     const document = vscode.window.activeTextEditor?.document;
-    if (!document || !isSystemVerilogDoc(document)) {
-      void this.view.webview.postMessage({ type: "activeModule", fileName: null, module: null });
-      return;
-    }
-    const module = parseModule(document.getText());
-    void this.view.webview.postMessage({
+    const module = document && isSystemVerilogDoc(document) ? parseModule(document.getText()) : null;
+    const summary = {
       type: "activeModule",
-      fileName: path.posix.basename(document.uri.path),
+      fileName: document && isSystemVerilogDoc(document) ? path.posix.basename(document.uri.path) : null,
       module: module ? { name: module.name, ports: module.ports } : null,
-    });
+    };
+    const serialized = JSON.stringify(summary);
+    if (serialized !== this.shown) {
+      this.shown = serialized;
+      void this.view.webview.postMessage(summary);
+    }
   }
 }
 

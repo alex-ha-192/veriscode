@@ -19,9 +19,11 @@ function fileNameFor(document: vscode.TextDocument): string {
 export class VeribleLinter implements vscode.Disposable {
   private readonly collection = vscode.languages.createDiagnosticCollection("verible");
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
-  // Per-document counter so a slow earlier run can't overwrite the
-  // diagnostics of a newer one that finished first.
-  private readonly latestRun = new Map<string, number>();
+  // The latest lint started for each document: `id` so a slow earlier run
+  // can't overwrite the diagnostics of a newer one, and `input` (everything
+  // the result depends on) so the same text isn't linted twice - as it
+  // otherwise would be on every save that follows typing.
+  private readonly latestRun = new Map<string, { id: number; input: string }>();
 
   constructor(private readonly extensionPath: string) {}
 
@@ -56,21 +58,27 @@ export class VeribleLinter implements vscode.Disposable {
       return; // No bundled or PATH copy of Verible: linting is simply off.
     }
 
-    const key = document.uri.toString();
-    const runId = (this.latestRun.get(key) ?? 0) + 1;
-    this.latestRun.set(key, runId);
-
     const disabledRules = config.get<string[]>("disabledRules") ?? [];
     const args = disabledRules.length > 0 ? [`--rules=${disabledRules.map((rule) => `-${rule}`).join(",")}`] : [];
+
+    const key = document.uri.toString();
+    const previous = this.latestRun.get(key);
+    const input = [document.version, bin, ...args].join("\n");
+    if (previous?.input === input) {
+      return; // This exact text has already been linted with these rules.
+    }
+    const id = (previous?.id ?? 0) + 1;
+    this.latestRun.set(key, { id, input });
 
     let output: string;
     try {
       const result = await runVeribleOnText(bin, document.getText(), fileNameFor(document), args);
       output = result.stdout + result.stderr;
     } catch {
-      return; // Couldn't launch the binary at all.
+      this.latestRun.delete(key); // Couldn't launch the binary at all: let the next event try again.
+      return;
     }
-    if (this.latestRun.get(key) !== runId) {
+    if (this.latestRun.get(key)?.id !== id) {
       return; // Superseded by a newer run, or the document was closed meanwhile.
     }
 
