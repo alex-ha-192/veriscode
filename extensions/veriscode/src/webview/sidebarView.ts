@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { parseModule } from "../simulation/portParser";
-import { isSystemVerilogDoc } from "../isSystemVerilogDoc";
+import { isSystemVerilogDoc } from "../language";
 import { getNonce, contentSecurityPolicy } from "./webviewUtils";
 
 /**
