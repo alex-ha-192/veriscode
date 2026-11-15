@@ -26,7 +26,10 @@ fi
 
 mkdir -p "$DEST" "$LIB_DEST"
 
-BREW_PREFIX=$(brew --prefix icarus-verilog)
+# `brew --prefix <formula>` is a symlink into the Cellar. Resolve it: `find`
+# does not descend into a symlink it is given as a starting point, so
+# searching the unresolved prefix finds nothing at all.
+BREW_PREFIX=$(cd "$(brew --prefix icarus-verilog)" && pwd -P)
 for bin in iverilog vvp iverilog-vpi; do
   src="$BREW_PREFIX/bin/$bin"
   if [[ -f "$src" ]]; then
@@ -37,9 +40,8 @@ for bin in iverilog vvp iverilog-vpi; do
   fi
 done
 
-# Search by content (a .vpi module) rather than assuming the support
-# directory is named "ivl" - that's true for Debian/apt's build but not
-# necessarily for Homebrew's, whose install layout isn't documented.
+# Search by content (a .vpi module) rather than assuming where the support
+# directory lives or what it is called.
 SUPPORT_DIR=$(dirname "$(find "$BREW_PREFIX" -type f -name "*.vpi" 2>/dev/null | head -n1)")
 if [[ -z "$SUPPORT_DIR" || "$SUPPORT_DIR" == "." ]]; then
   echo "error: could not find Icarus's .vpi support directory under $BREW_PREFIX" >&2
@@ -50,3 +52,9 @@ echo "Staged support files from $SUPPORT_DIR"
 
 echo "Icarus Verilog staged at $DEST"
 ls -la "$DEST"
+
+# For the record: any library the staged binaries load from outside the
+# system (i.e. from Homebrew) would have to exist on the user's Mac too.
+echo "Non-system libraries the staged binaries link against:"
+otool -L "$DEST/iverilog" "$DEST/vvp" "$LIB_DEST"/ivl "$LIB_DEST"/ivlpp 2>/dev/null \
+  | grep -v -e '^/' -e '/usr/lib/' -e '/System/' || echo "  (none)"
