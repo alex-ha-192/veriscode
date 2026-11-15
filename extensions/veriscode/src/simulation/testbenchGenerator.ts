@@ -11,13 +11,17 @@ function declFor(port: Port): string {
   return port.declRange ? `logic ${port.declRange} ${port.name}` : `logic ${port.name}`;
 }
 
-function sanitizeValue(raw: string | undefined): string {
-  // A step missing a value entirely (e.g. a port introduced after the
-  // step table was built - normally backfilled by backfillSteps, but
-  // this is the last line of defense) drives 'x, same as an explicitly
-  // blank cell, rather than crashing testbench generation.
-  const v = (raw ?? "").trim();
-  return v.length > 0 ? v : "'x";
+/**
+ * The SystemVerilog literal to drive for one cell's text. Cells take
+ * literals as typed (0, 1, 4'hA, 3'b101...), with two conveniences:
+ * - a bare x or z - how the diagram itself displays those values - means
+ *   'x / 'z (on its own, `x` would be an identifier, not a value);
+ * - a blank or missing cell drives 'x rather than breaking the testbench.
+ */
+function literalFor(cellText: string | undefined): string {
+  const text = (cellText ?? "").trim();
+  if (text === "") return "'x";
+  return /^[xz]$/i.test(text) ? `'${text.toLowerCase()}` : text;
 }
 
 /**
@@ -64,14 +68,14 @@ export function generateTestbench(module: ParsedModule, steps: SimStep[], opts: 
     // edge (with a 1ns settle) so the DUT's post-edge outputs for step k
     // are sampled cleanly before step k+1's inputs change.
     for (const p of inputs) {
-      lines.push(`    ${p.name} = ${sanitizeValue(steps[0][p.name])};`);
+      lines.push(`    ${p.name} = ${literalFor(steps[0][p.name])};`);
     }
     for (let i = 0; i < steps.length; i++) {
       lines.push(`    @(posedge ${clockPort.name});`);
       if (i + 1 < steps.length) {
         lines.push(`    #1;`);
         for (const p of inputs) {
-          lines.push(`    ${p.name} = ${sanitizeValue(steps[i + 1][p.name])};`);
+          lines.push(`    ${p.name} = ${literalFor(steps[i + 1][p.name])};`);
         }
       }
     }
@@ -80,7 +84,7 @@ export function generateTestbench(module: ParsedModule, steps: SimStep[], opts: 
     const slice = opts.clockPeriodNs;
     for (const step of steps) {
       for (const p of inputs) {
-        lines.push(`    ${p.name} = ${sanitizeValue(step[p.name])};`);
+        lines.push(`    ${p.name} = ${literalFor(step[p.name])};`);
       }
       lines.push(`    #${slice};`);
     }

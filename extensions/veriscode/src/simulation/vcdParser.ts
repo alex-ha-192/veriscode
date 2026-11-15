@@ -85,11 +85,13 @@ export function parseVcd(text: string): ParsedVcd {
   return { vars, changes };
 }
 
+/** A vector value as a display string: decimal, or "x" / "z" if any bit is unknown / high-Z. */
 function formatBinary(bits: string): string {
   if (/[xX]/.test(bits)) return "x";
   if (/[zZ]/.test(bits)) return "z";
   if (bits.length === 0) return "0";
-  return String(parseInt(bits, 2));
+  // BigInt, because a bus wider than 53 bits doesn't fit a double exactly.
+  return BigInt(`0b${bits}`).toString();
 }
 
 /**
