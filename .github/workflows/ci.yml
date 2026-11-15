@@ -12,8 +12,10 @@ jobs:
       matrix:
         include:
           - arch: amd64
+            target: linux-x64
             runs-on: ubuntu-latest
           - arch: arm64
+            target: linux-arm64
             runs-on: ubuntu-24.04-arm
     runs-on: ${{ matrix.runs-on }}
     steps:
@@ -32,24 +34,20 @@ jobs:
       - name: Compile
         run: npm run compile
 
-      - name: Simulation engine smoke tests (real iverilog)
-        working-directory: extensions/veriscode
-        run: |
-          node test/manual-e2e.js
-          node test/manual-e2e-comb.js
-          node test/manual-multimodule.js
-          node test/manual-workshop-cpu.js
-          node test/manual-workshop-stages.js
-          node test/manual-workshop-templates-compile.js
-          node test/manual-template-picker.js
-          node test/manual-perf.js
-          node test/toolchain-fallback.js
-          node test/default-steps.js
-          node test/instance-parser.js
-          node test/top-generator.js
+      # Not bundled into a development checkout, so fetch the pinned release:
+      # with it present, the lint/format tests run against the real thing
+      # instead of being skipped.
+      - name: Fetch Verible
+        run: toolchains/fetch-verible.sh ${{ matrix.target }}
 
+      - name: Test (real iverilog and Verible)
+        run: npm test
+
+      # A development build: no toolchain inside (the Verible fetched for the
+      # tests is removed again). build-universal-vsix.yml makes the bundled one.
       - name: Package extension (.vsix)
         run: |
+          rm -rf extensions/veriscode/bin
           mkdir -p dist
           (cd extensions/veriscode && npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository -o ../../dist/)
 
