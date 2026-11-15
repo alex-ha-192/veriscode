@@ -13,23 +13,21 @@ export interface VcdChange {
 export interface ParsedVcd {
   vars: VcdVar[];
   changes: VcdChange[];
-  timescaleNs: number;
 }
 
 /** Parses `$timescale <n> <unit> $end` into a nanosecond multiplier. */
 function parseTimescale(text: string): number {
   const m = /\$timescale\s+(\d+)\s*(fs|ps|ns|us|ms|s)\s*\$end/.exec(text);
   if (!m) return 1;
-  const n = Number(m[1]);
-  const unit = m[2];
   const toNs: Record<string, number> = { fs: 1e-6, ps: 1e-3, ns: 1, us: 1e3, ms: 1e6, s: 1e9 };
-  return n * toNs[unit];
+  return Number(m[1]) * toNs[m[2]];
 }
 
 /**
  * Minimal VCD (Value Change Dump) parser covering scalar and vector
  * $var declarations plus b/r/x-style value changes - everything Icarus
- * Verilog's $dumpvars output uses.
+ * Verilog's $dumpvars output uses. Values come back as display strings:
+ * decimal for fully-known vectors, "x" / "z" if any bit is unknown / high-Z.
  */
 export function parseVcd(text: string): ParsedVcd {
   const vars: VcdVar[] = [];
@@ -37,22 +35,17 @@ export function parseVcd(text: string): ParsedVcd {
   const timescaleNs = parseTimescale(text);
 
   let currentTimeNs = 0;
-  const lines = text.split(/\r?\n/);
-  for (let raw of lines) {
+  for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (line.length === 0) continue;
 
     if (line.startsWith("$var")) {
-      // $var wire 8 " count [7:0] $end
+      // $var <type> <width> <id> <name...> $end, e.g. `$var wire 8 " count [7:0] $end`
       const parts = line.split(/\s+/);
-      // parts: $var <type> <width> <id> <name...> $end
       const width = Number(parts[2]);
       const id = parts[3];
-      const nameParts: string[] = [];
-      for (let i = 4; i < parts.length; i++) {
-        if (parts[i] === "$end") break;
-        nameParts.push(parts[i]);
-      }
+      const endIdx = parts.indexOf("$end", 4);
+      const nameParts = parts.slice(4, endIdx === -1 ? undefined : endIdx);
       const name = nameParts.join(" ").replace(/\s*\[.*\]$/, "");
       vars.push({ id, name, width: Number.isFinite(width) ? width : 1 });
       continue;
@@ -89,7 +82,7 @@ export function parseVcd(text: string): ParsedVcd {
     }
   }
 
-  return { vars, changes, timescaleNs };
+  return { vars, changes };
 }
 
 function formatBinary(bits: string): string {

@@ -1,15 +1,13 @@
-import { ParsedModule, SimStep } from "./types";
+import { ParsedModule, Port, SimStep } from "./types";
 
-export const TB_MODULE_NAME = "__veriscode_tb";
-export const VCD_SCOPE = TB_MODULE_NAME;
+const TB_MODULE_NAME = "__veriscode_tb";
 
 export interface TestbenchOptions {
-  dutPath: string;
   vcdPath: string;
   clockPeriodNs: number;
 }
 
-function declFor(port: { name: string; declRange?: string }): string {
+function declFor(port: Port): string {
   return port.declRange ? `logic ${port.declRange} ${port.name}` : `logic ${port.name}`;
 }
 
@@ -34,16 +32,13 @@ export function generateTestbench(module: ParsedModule, steps: SimStep[], opts: 
   const outputs = module.ports.filter((p) => p.direction !== "input");
 
   const lines: string[] = [];
-  lines.push(`\`timescale 1ns/1ps`);
+  lines.push("`timescale 1ns/1ps");
   lines.push(`module ${TB_MODULE_NAME};`);
 
   if (clockPort) {
     lines.push(`  logic ${clockPort.name} = 0;`);
   }
-  for (const p of inputs) {
-    lines.push(`  ${declFor(p)};`);
-  }
-  for (const p of outputs) {
+  for (const p of [...inputs, ...outputs]) {
     lines.push(`  ${declFor(p)};`);
   }
 
@@ -62,13 +57,8 @@ export function generateTestbench(module: ParsedModule, steps: SimStep[], opts: 
   lines.push(`    $dumpvars(0, ${TB_MODULE_NAME});`);
 
   if (steps.length === 0) {
-    lines.push(`    $finish;`);
-    lines.push(`  end`);
-    lines.push(`endmodule`);
-    return lines.join("\n");
-  }
-
-  if (clockPort) {
+    // Nothing to drive: fall through to $finish.
+  } else if (clockPort) {
     // Step 0's inputs are set up before the first rising edge; each
     // subsequent step's inputs are latched in right after the previous
     // edge (with a 1ns settle) so the DUT's post-edge outputs for step k
@@ -106,8 +96,10 @@ export function generateTestbench(module: ParsedModule, steps: SimStep[], opts: 
 export function sampleTimeForStep(index: number, module: ParsedModule, clockPeriodNs: number): number {
   const hasClock = module.ports.some((p) => p.isClockLike && p.direction === "input");
   if (hasClock) {
-    const half = clockPeriodNs / 2;
-    return half + index * clockPeriodNs;
+    // Rising edges land at half a period + k periods; reading at that
+    // timestamp picks up the values the edge just produced.
+    return clockPeriodNs / 2 + index * clockPeriodNs;
   }
+  // Combinational: just before the end of the step's time slice.
   return (index + 1) * clockPeriodNs - 1;
 }

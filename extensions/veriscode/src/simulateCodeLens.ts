@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 const MODULE_DECL = /^\s*module\s+[A-Za-z_][A-Za-z0-9_$]*/;
 
+/** Puts a clickable "▶ Simulate" above every module declaration. */
 export class SimulateCodeLensProvider implements vscode.CodeLensProvider {
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
     const lenses: vscode.CodeLens[] = [];

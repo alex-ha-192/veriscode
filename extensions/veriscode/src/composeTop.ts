@@ -12,27 +12,17 @@ import { ComposerPanel } from "./webview/composerPanel";
  * then opens the composer webview on it.
  */
 export async function composeTopCommand(context: vscode.ExtensionContext, uri?: vscode.Uri): Promise<void> {
-  let folder: string | undefined;
-
-  if (uri) {
-    try {
-      const stat = fs.statSync(uri.fsPath);
-      folder = stat.isDirectory() ? uri.fsPath : path.dirname(uri.fsPath);
-    } catch {
-      folder = undefined;
-    }
-  }
+  let folder = uri && folderOf(uri.fsPath);
 
   if (!folder) {
     const activeUri = vscode.window.activeTextEditor?.document.uri;
-    const defaultUri = activeUri ? vscode.Uri.file(path.dirname(activeUri.fsPath)) : undefined;
     const picked = await vscode.window.showOpenDialog({
       title: "Choose the folder with the SystemVerilog modules to build from",
       canSelectFiles: false,
       canSelectFolders: true,
       canSelectMany: false,
       openLabel: "Use This Folder",
-      defaultUri,
+      defaultUri: activeUri && vscode.Uri.file(path.dirname(activeUri.fsPath)),
     });
     if (!picked || picked.length === 0) {
       return;
@@ -49,4 +39,13 @@ export async function composeTopCommand(context: vscode.ExtensionContext, uri?: 
   }
 
   await ComposerPanel.show(context, folder, library);
+}
+
+/** The folder itself if `fsPath` is one, the containing folder if it's a file, undefined if it doesn't exist. */
+function folderOf(fsPath: string): string | undefined {
+  try {
+    return fs.statSync(fsPath).isDirectory() ? fsPath : path.dirname(fsPath);
+  } catch {
+    return undefined;
+  }
 }

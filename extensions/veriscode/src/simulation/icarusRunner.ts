@@ -4,9 +4,9 @@ import * as os from "os";
 import * as path from "path";
 import { resolveBinary, resolveBundledPlatformDir } from "../toolchain";
 import { generateTestbench, sampleTimeForStep } from "./testbenchGenerator";
-import { parseVcd, sampleSignal, groupChangesById } from "./vcdParser";
 import { listSvFiles } from "./svFiles";
 import { ParsedModule, SimStep, SimulationResult, WaveformSignal } from "./types";
+import { groupChangesById, parseVcd, sampleSignal } from "./vcdParser";
 
 export interface IcarusPaths {
   extensionPath: string;
@@ -97,7 +97,7 @@ export async function simulate(
   const supportDir = bundledSupportDir(paths.extensionPath);
 
   try {
-    const tbSource = generateTestbench(module, steps, { dutPath: modulePath, vcdPath, clockPeriodNs });
+    const tbSource = generateTestbench(module, steps, { vcdPath, clockPeriodNs });
     fs.writeFileSync(tbPath, tbSource, "utf8");
 
     const compileArgs = supportDir ? ["-B", supportDir] : [];
@@ -107,9 +107,7 @@ export async function simulate(
       return { ok: false, log: compile.output || "iverilog compilation failed.", signals: [] };
     }
 
-    const vvpEnv = supportDir
-      ? { ...process.env, IVERILOG_VPI_MODULE_PATH: supportDir }
-      : process.env;
+    const vvpEnv = supportDir ? { ...process.env, IVERILOG_VPI_MODULE_PATH: supportDir } : process.env;
     const sim = await run(vvp, [vvpOutPath], workDir, vvpEnv);
     if (sim.code !== 0) {
       return { ok: false, log: sim.output || "vvp simulation failed.", signals: [] };
@@ -119,11 +117,9 @@ export async function simulate(
       return { ok: false, log: sim.output + "\n(no VCD was produced)", signals: [] };
     }
 
-    const vcdText = fs.readFileSync(vcdPath, "utf8");
-    const parsed = parseVcd(vcdText);
-    const changesByVar = groupChangesById(parsed.changes);
-    const varsByName = new Map(parsed.vars.map((v) => [v.name, v]));
-
+    const vcd = parseVcd(fs.readFileSync(vcdPath, "utf8"));
+    const changesByVar = groupChangesById(vcd.changes);
+    const varsByName = new Map(vcd.vars.map((v) => [v.name, v]));
     const sampleTimes = steps.map((_, i) => sampleTimeForStep(i, module, clockPeriodNs));
 
     const signals: WaveformSignal[] = [];
