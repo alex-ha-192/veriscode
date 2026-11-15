@@ -1,357 +1,438 @@
-:root {
-  color-scheme: light dark;
-}
+/* The editor-area panels: the simulator (panel.ts / main.js) and the
+   top-module composer (composerPanel.ts / composer.js), which share the
+   schematic canvas (schematicCanvas.js). Builds on base.css. */
 
 body {
-  font-family: var(--vscode-font-family, sans-serif);
-  color: var(--vscode-foreground);
   background: var(--vscode-editor-background);
-  margin: 0;
-  padding: 12px 16px 24px;
+  padding: 14px 18px 24px;
 }
 
 h1 {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  margin: 0 0 4px;
+  margin: 0 0 3px;
 }
 
 .subtitle {
-  font-size: 12px;
-  opacity: 0.75;
+  color: var(--vscode-descriptionForeground);
   margin: 0 0 12px;
+}
+
+.legend {
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 10px 0;
+  max-width: 76ch;
 }
 
 .toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
-  flex-wrap: wrap;
 }
 
-button {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  border: none;
-  padding: 4px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-button:hover {
-  background: var(--vscode-button-hoverBackground);
-}
-
-button.secondary {
-  background: var(--vscode-button-secondaryBackground, transparent);
-  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  border: 1px solid var(--vscode-contrastBorder, #8888);
-}
-
-#status {
-  font-size: 12px;
-  opacity: 0.8;
-}
-
-#status.error {
-  color: var(--vscode-errorForeground);
-  opacity: 1;
-}
-
-#status.running {
-  color: var(--vscode-charts-yellow, orange);
-}
-
-#errorLog {
-  display: none;
+/* Compiler / validation output. */
+.log {
+  font-family: var(--mono);
   white-space: pre-wrap;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 12px;
   background: var(--vscode-textCodeBlock-background, #0002);
-  border: 1px solid var(--vscode-contrastBorder, #8884);
-  border-radius: 4px;
-  padding: 8px;
-  margin-bottom: 12px;
-  max-height: 200px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--vscode-errorForeground);
+  border-radius: 3px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  max-height: 220px;
   overflow: auto;
 }
 
-.diagram-scroll {
-  overflow-x: auto;
-  border: 1px solid var(--vscode-panel-border, #8884);
-  border-radius: 4px;
+.log.error {
+  color: var(--vscode-errorForeground);
 }
 
-.diagram {
-  display: grid;
-  align-items: stretch;
-}
-
-.row-label {
-  position: sticky;
-  left: 0;
-  background: var(--vscode-editor-background);
-  padding: 4px 10px;
-  font-size: 12px;
-  font-family: var(--vscode-editor-font-family, monospace);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-right: 1px solid var(--vscode-panel-border, #8884);
-  white-space: nowrap;
-  /* Backstop: keep a long name/badge from spilling out of the label
-     column and over the waveform cells - clip at the border instead. */
-  overflow: hidden;
-}
-
-.row-label .dir {
-  font-size: 9px;
-  text-transform: uppercase;
-  opacity: 0.65;
-  border-radius: 2px;
-  padding: 1px 4px;
-}
-
-.dir.input { background: var(--vscode-charts-blue, #3794ff33); }
-.dir.output { background: var(--vscode-charts-green, #89d18533); }
-.dir.reset { background: var(--vscode-charts-orange, #d1892533); cursor: help; }
-
-.header-cell {
-  font-size: 11px;
-  text-align: center;
-  padding: 4px 0;
-  opacity: 0.75;
-  position: relative;
-  border-bottom: 1px solid var(--vscode-panel-border, #8884);
-}
-
-.header-cell .remove {
-  position: absolute;
-  top: 0;
-  right: 2px;
-  cursor: pointer;
-  opacity: 0.5;
-  font-size: 10px;
-}
-.header-cell .remove:hover { opacity: 1; }
-
-.cell {
-  border-left: 1px solid var(--vscode-panel-border, #8883);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 30px;
-  position: relative;
-}
-
-.wave-row {
-  height: 30px;
-}
-
-.bus-cell {
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 11px;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: default;
-}
-
-.bus-cell.editable { cursor: text; }
-.bus-cell.editable:hover { background: var(--vscode-list-hoverBackground); }
-.bus-cell.unknown { color: var(--vscode-errorForeground); opacity: 0.8; }
-
-.bus-cell.output { background: color-mix(in srgb, var(--vscode-charts-green, #4caf50) 10%, transparent); }
-.bus-cell.input { background: color-mix(in srgb, var(--vscode-charts-blue, #2196f3) 6%, transparent); }
-
+.text-input,
 .cell-edit-input {
-  width: calc(100% - 8px);
-  font-family: var(--vscode-editor-font-family, monospace);
+  font-family: var(--mono);
   font-size: 11px;
-  text-align: center;
-  background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-focusBorder);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--border));
+  border-radius: 2px;
+  padding: 2px 5px;
 }
 
-svg.wave { display: block; }
-svg.wave path.trace { fill: none; stroke: var(--vscode-charts-blue, #3794ff); stroke-width: 1.5; }
-svg.wave path.trace.output { stroke: var(--vscode-charts-green, #4caf50); }
-svg.wave rect.hit { fill: transparent; cursor: text; }
-svg.wave rect.hit.editable:hover { fill: var(--vscode-list-hoverBackground); opacity: 0.5; }
-
-.legend {
-  font-size: 11px;
-  opacity: 0.7;
-  margin-top: 10px;
-}
+/* --- Tabs --------------------------------------------------------------- */
 
 .tabs {
   display: flex;
-  gap: 2px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--vscode-panel-border, #8884);
+  gap: 16px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
 }
 
 button.tab {
-  background: transparent;
-  color: var(--vscode-foreground);
-  opacity: 0.65;
+  background: none;
+  color: var(--vscode-descriptionForeground);
   border: none;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 6px 4px;
-  margin-right: 12px;
-  font-size: 12px;
+  padding: 6px 2px;
+  margin-bottom: -1px;
 }
 
 button.tab:hover {
-  background: transparent;
-  opacity: 0.9;
+  color: var(--vscode-foreground);
 }
 
-button.tab.active {
-  opacity: 1;
+button.tab[aria-selected="true"] {
+  color: var(--vscode-foreground);
   border-bottom-color: var(--vscode-focusBorder, #007acc);
   font-weight: 600;
 }
 
+/* --- Timing diagram ----------------------------------------------------- */
+
+#status {
+  color: var(--vscode-descriptionForeground);
+}
+
+#status.running {
+  color: var(--accent-color);
+}
+
+#status.error {
+  color: var(--vscode-errorForeground);
+}
+
+/* The frame hugs the grid, and scrolls sideways once there are more
+   columns than fit. */
+.diagram-scroll {
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* One column for the signal names, then one per step (set from main.js). */
+.diagram {
+  display: grid;
+}
+
+.diagram > * {
+  box-sizing: border-box;
+  min-height: 30px;
+  border-top: 1px solid var(--border);
+}
+
+.diagram > .header-cell {
+  min-height: 0;
+  border-top: none;
+}
+
+/* The signal-name column stays put while the steps scroll under it. */
+.row-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 150px;
+  padding: 0 14px 0 10px;
+  white-space: nowrap;
+  background: var(--vscode-editor-background);
+  border-right: 1px solid var(--border);
+}
+
+.signal-name {
+  font-family: var(--mono);
+  margin-right: 2px;
+}
+
+.header-cell {
+  position: relative;
+  padding: 5px 0;
+  font-size: 11px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Each column's remove button appears when its header is hovered. */
+.header-cell .icon-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  opacity: 0;
+}
+
+.header-cell:hover .icon-button,
+.header-cell .icon-button:focus-visible {
+  opacity: 1;
+}
+
+.cell {
+  position: relative;
+  border-left: 1px solid var(--border);
+}
+
+.cell.wave-row {
+  border-left: none;
+}
+
+/* A multi-bit value: one cell per step, tinted by direction, with a
+   coloured edge on the left wherever the value differs from the step
+   before - the bus equivalent of a waveform transition. */
+.bus-cell {
+  --signal: var(--output-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--signal) 7%, transparent);
+}
+
+.bus-cell.input {
+  --signal: var(--input-color);
+}
+
+.bus-cell.changed {
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.bus-cell.unknown {
+  color: var(--vscode-errorForeground);
+  background: color-mix(in srgb, var(--vscode-errorForeground) 12%, transparent);
+}
+
+.bus-cell.editable {
+  cursor: text;
+}
+
+.bus-cell.editable:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cell-edit-input {
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  box-sizing: border-box;
+  padding: 0;
+  text-align: center;
+  border-color: var(--vscode-focusBorder);
+}
+
+/* The focus-coloured border above already marks it. */
+.cell-edit-input:focus-visible {
+  outline: none;
+}
+
+/* A 1-bit value: a waveform trace across all steps. */
+svg.wave {
+  --signal: var(--output-color);
+  display: block;
+}
+
+svg.wave.input {
+  --signal: var(--input-color);
+}
+
+svg.wave .grid {
+  stroke: var(--border);
+}
+
+svg.wave .trace {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+/* x (unknown): a filled band spanning both levels. */
+svg.wave .unknown {
+  fill: color-mix(in srgb, var(--vscode-errorForeground) 22%, transparent);
+  stroke: var(--vscode-errorForeground);
+  stroke-width: 1;
+}
+
+/* z (not driven): a dashed line floating between the levels. */
+svg.wave .high-z {
+  stroke: var(--accent-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+svg.wave .hit {
+  fill: transparent;
+  cursor: text;
+}
+
+/* A translucent wash, so the trace underneath stays visible. */
+svg.wave .hit:hover {
+  fill: var(--vscode-foreground);
+  fill-opacity: 0.1;
+}
+
+/* --- Schematic canvas (simulator tab and composer) ---------------------- */
+
 .schematic-canvas {
   position: relative;
-  min-height: 360px;
-  border: 1px solid var(--vscode-panel-border, #8884);
-  border-radius: 4px;
   overflow: auto;
-  background:
-    linear-gradient(var(--vscode-panel-border, #8882) 1px, transparent 1px),
-    linear-gradient(90deg, var(--vscode-panel-border, #8882) 1px, transparent 1px);
-  background-size: 24px 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+/* Wires sit under the boxes and never intercept the mouse. */
+svg.wires {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.wire {
+  fill: none;
+  stroke: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
+  stroke-width: 1.25;
+}
+
+.wire.highlight {
+  stroke: var(--vscode-focusBorder, #007acc);
+  stroke-width: 2;
 }
 
 .schematic-box {
   position: absolute;
-  min-width: 160px;
+  min-width: 170px;
   background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-panel-border, #8884);
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--vscode-widget-border, var(--border));
+  border-radius: 5px;
+  box-shadow: 0 1px 4px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.2));
+  padding-bottom: 4px;
   user-select: none;
 }
 
 .schematic-box.top {
   border-color: var(--vscode-focusBorder, #007acc);
-  border-width: 1.5px;
 }
 
-.schematic-box .box-title {
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 12px;
+.schematic-box.dragging {
+  z-index: 2;
+  box-shadow: 0 4px 14px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+}
+
+.box-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
   font-weight: 600;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--vscode-panel-border, #8884);
-  background: var(--vscode-list-hoverBackground, transparent);
-  border-radius: 6px 6px 0 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px 4px 0 0;
+  background: var(--vscode-sideBar-background, var(--vscode-list-hoverBackground));
   cursor: grab;
 }
 
-.schematic-box .box-title:active {
+.dragging .box-title {
   cursor: grabbing;
 }
 
-.schematic-box .box-subtitle {
-  font-size: 10px;
-  opacity: 0.6;
+.box-subtitle {
+  font-size: 11px;
   font-weight: 400;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.box-title .icon-button {
+  margin-left: auto;
+  align-self: center;
 }
 
 .schematic-port-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 11px;
+  gap: 16px;
   padding: 3px 10px;
-}
-
-.schematic-port-row .port-name {
-  opacity: 0.85;
-}
-
-.schematic-port-row .dir {
-  font-size: 9px;
-  text-transform: uppercase;
-  border-radius: 2px;
-  padding: 1px 4px;
-  opacity: 0.75;
-  margin-right: 6px;
-}
-
-.net-name {
-  font-family: var(--vscode-editor-font-family, monospace);
   font-size: 11px;
-  padding: 0 3px;
-  border-radius: 2px;
-  cursor: default;
+  white-space: nowrap;
 }
 
-.net-name.highlight {
-  background: var(--vscode-editor-findMatchHighlightBackground, #ffd60088);
-  outline: 1px solid var(--vscode-focusBorder, #007acc);
-}
-
-.schematic-empty {
-  padding: 16px;
-  font-size: 12px;
-  opacity: 0.7;
-}
-
-/* --- Top-module composer --- */
-
-.composer-layout {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.composer-palette {
-  flex: 0 0 190px;
-  border: 1px solid var(--vscode-panel-border, #8884);
-  border-radius: 4px;
-  padding: 8px 10px;
-}
-
-.composer-palette h2 {
-  font-size: 12px;
-  margin: 0 0 8px;
-  opacity: 0.8;
-}
-
-.palette-item {
-  border: 1px solid var(--vscode-panel-border, #8884);
-  border-radius: 4px;
-  padding: 6px 8px;
-  margin-bottom: 6px;
-  cursor: pointer;
-}
-
-.palette-item:hover {
+.schematic-port-row.highlight {
   background: var(--vscode-list-hoverBackground);
 }
 
+.schematic-port-row .port {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.net-name {
+  font-family: var(--mono);
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+.highlight .net-name {
+  background: var(--vscode-editor-findMatchHighlightBackground, #ffd60066);
+}
+
+/* --- Top-module composer ------------------------------------------------ */
+
+.composer-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.composer-palette {
+  flex: 0 0 180px;
+}
+
+.composer-palette h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+  margin: 4px 0 8px;
+}
+
+button.palette-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  color: var(--vscode-foreground);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 9px;
+  margin-bottom: 6px;
+}
+
+button.palette-item:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-focusBorder, #007acc);
+}
+
 .palette-item-name {
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 12px;
+  font-family: var(--mono);
   font-weight: 600;
 }
 
 .palette-item-detail {
-  font-size: 10px;
-  opacity: 0.65;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
 }
 
 .composer-main {
@@ -360,94 +441,40 @@ button.tab.active {
 }
 
 .top-name-label {
-  font-size: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.top-name-input,
-.instance-name-input,
-.port-name-input,
-.net-input,
-.width-input,
-.dir-select {
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 11px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-panel-border, #8884);
-  border-radius: 3px;
-  padding: 2px 5px;
-}
-
-.top-name-input {
+#topName {
   font-size: 12px;
   padding: 3px 6px;
+  width: 140px;
+}
+
+.composer-success {
+  color: var(--output-color);
+  margin: 0 0 12px;
+}
+
+.composer-top-box {
+  width: 270px;
 }
 
 .instance-name-input {
   font-weight: 600;
-  width: 100px;
-  margin-right: 2px;
-}
-
-.net-input {
-  width: 90px;
-  text-align: right;
-}
-
-.width-input {
-  width: 40px;
+  width: 110px;
 }
 
 .port-name-input {
-  width: 80px;
+  flex: 1;
+  min-width: 0;
 }
 
-.composer-errors {
-  display: none;
-  white-space: pre-wrap;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 12px;
-  background: var(--vscode-textCodeBlock-background, #0002);
-  border: 1px solid var(--vscode-errorForeground, #f488714d);
-  color: var(--vscode-errorForeground);
-  border-radius: 4px;
-  padding: 8px;
-  margin-bottom: 10px;
+.width-input {
+  width: 44px;
 }
 
-.composer-success {
-  display: none;
-  font-size: 12px;
-  color: var(--vscode-charts-green, #4caf50);
-  margin-bottom: 10px;
-}
-
-.composer-top-box {
-  width: 290px;
-}
-
-.composer-instance-title {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.composer-port-row {
-  justify-content: space-between;
-}
-
-.box-remove {
-  margin-left: auto;
-  opacity: 0.5;
-  cursor: pointer;
-  font-size: 10px;
-  padding: 0 2px;
-}
-
-.box-remove:hover {
-  opacity: 1;
-  color: var(--vscode-errorForeground);
+.net-input {
+  width: 96px;
 }

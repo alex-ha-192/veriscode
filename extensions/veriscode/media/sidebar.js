@@ -1,51 +1,52 @@
+// Webview client for the Activity Bar view: three launcher buttons and a
+// summary of the module in the active editor. The extension-host side is
+// src/webview/sidebarView.ts.
 (function () {
   const vscode = acquireVsCodeApi();
+  const byId = (id) => document.getElementById(id);
 
-  const el = {
-    newProject: document.getElementById("newProject"),
-    composeTop: document.getElementById("composeTop"),
-    activeSection: document.getElementById("activeSection"),
-    emptySection: document.getElementById("emptySection"),
-    moduleName: document.getElementById("moduleName"),
-    fileName: document.getElementById("fileName"),
-    portList: document.getElementById("portList"),
-    simulate: document.getElementById("simulate"),
-  };
+  // Each button's id is the message it sends (and the command the host runs).
+  for (const id of ["newProject", "composeTop", "simulate"]) {
+    byId(id).addEventListener("click", () => vscode.postMessage({ type: id }));
+  }
 
-  el.newProject.addEventListener("click", () => vscode.postMessage({ type: "newProject" }));
-  el.composeTop.addEventListener("click", () => vscode.postMessage({ type: "composeTop" }));
-  el.simulate.addEventListener("click", () => vscode.postMessage({ type: "simulate" }));
-
-  window.addEventListener("message", (event) => {
-    const msg = event.data;
+  window.addEventListener("message", ({ data: msg }) => {
     if (msg.type === "activeModule") {
       render(msg);
     }
   });
 
-  function render(msg) {
-    if (!msg.module) {
-      el.activeSection.style.display = "none";
-      el.emptySection.style.display = "block";
-      el.emptySection.textContent = msg.fileName
-        ? `No module found in ${msg.fileName}.`
-        : "Open a .sv file to see it here.";
+  function makeSpan(className, text) {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    return span;
+  }
+
+  /** @param {{fileName: string | null, module: {name: string, ports: any[]} | null}} active */
+  function render({ fileName, module }) {
+    byId("activeSection").hidden = !module;
+    byId("emptySection").hidden = Boolean(module);
+    if (!module) {
+      byId("emptySection").textContent = fileName ? `No module found in ${fileName}.` : "Open a .sv file to see it here.";
       return;
     }
-    el.emptySection.style.display = "none";
-    el.activeSection.style.display = "block";
-    el.moduleName.textContent = `module ${msg.module.name}`;
-    el.fileName.textContent = msg.fileName || "";
-    el.portList.innerHTML = "";
-    for (const port of msg.module.ports) {
-      const li = document.createElement("li");
-      const width = port.width > 1 ? ` [${port.width - 1}:0]` : "";
-      const resetBadge = port.resetPolarity
-        ? ` <span class="dir reset">reset (${port.resetPolarity === "active-low" ? "low" : "high"})</span>`
-        : "";
-      li.innerHTML = `<span class="dir ${port.direction}">${port.direction}</span> ${port.name}${width}${resetBadge}`;
-      el.portList.appendChild(li);
-    }
+
+    byId("moduleName").textContent = `module ${module.name}`;
+    byId("fileName").textContent = fileName;
+    byId("portList").replaceChildren(
+      ...module.ports.map((port) => {
+        const item = document.createElement("li");
+        item.append(makeSpan(`dir ${port.direction}`, port.direction), makeSpan("port-name", port.name));
+        if (port.width > 1) {
+          item.appendChild(makeSpan("port-detail", `[${port.width - 1}:0]`));
+        }
+        if (port.resetPolarity) {
+          item.appendChild(makeSpan("dir reset", `reset (${port.resetPolarity === "active-low" ? "low" : "high"})`));
+        }
+        return item;
+      })
+    );
   }
 
   vscode.postMessage({ type: "ready" });

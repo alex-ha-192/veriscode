@@ -1,14 +1,12 @@
 import * as vscode from "vscode";
 
 /**
- * Shared plumbing for this extension's webview panels: tracks whether the
- * underlying vscode.WebviewPanel has been disposed and guards
- * postMessage() against firing after that - VS Code throws if you post to
- * a disposed webview, and every panel here (SimulatorPanel, ComposerPanel)
- * needs the same guard, so it lives in one place instead of being
- * reimplemented per class.
+ * Shared plumbing for the editor-area webview panels: remembers whether
+ * the panel has been closed, and drops messages posted after that (VS
+ * Code throws if you post to a disposed webview, and a simulation can
+ * easily finish after its panel was closed).
  */
-export abstract class DisposableWebviewPanel {
+export abstract class DisposableWebviewPanel<ToWebview> {
   protected disposed = false;
 
   protected constructor(protected readonly panel: vscode.WebviewPanel) {
@@ -17,7 +15,7 @@ export abstract class DisposableWebviewPanel {
     });
   }
 
-  protected post(message: unknown): void {
+  protected post(message: ToWebview): void {
     if (!this.disposed) {
       void this.panel.webview.postMessage(message);
     }
